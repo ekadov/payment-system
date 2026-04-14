@@ -1,0 +1,76 @@
+{
+  "realm": "my-realm",
+  "enabled": true,
+  "requiredActions": [
+    {
+      "alias": "VERIFY_PROFILE",
+      "name": "Verify Profile",
+      "providerId": "VERIFY_PROFILE",
+      "enabled": false,
+      "defaultAction": false
+    }
+  ],
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Admin",
+      "lastName": "Admin",
+      "email": "admin@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "admin"
+      ],
+      "clientRoles": {
+        "realm-management": [
+          "realm-admin"
+        ]
+      }
+    },
+    {
+      "username": "user11",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "User",
+      "lastName": "Eleven",
+      "email": "user11@example.com",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "user"
+      ]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "admin"
+      },
+      {
+        "name": "user"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "my-client-id",
+      "publicClient": true,
+      "redirectUris": [
+        "*"
+      ],
+      "directAccessGrantsEnabled": true
+    }
+  ]
+}

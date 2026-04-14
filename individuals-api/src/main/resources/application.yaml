@@ -1,0 +1,38 @@
+server:
+  port: 8081
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8080/realms/my-realm
+  application:
+    name: individuals-api
+
+management:
+  endpoint:
+    health:
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus, info
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+keycloak:
+  realm: my-realm
+  client-id: my-client-id
+  admin-username: admin
+  admin-password: password
+
+logging:
+  level:
+    org:
+      springframework: INFO

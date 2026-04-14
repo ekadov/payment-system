@@ -1,0 +1,6 @@
+keycloak:
+  base-url: http://localhost:8080
+
+logging:
+  loki:
+    url: http://localhost:3100/loki/api/v1/push

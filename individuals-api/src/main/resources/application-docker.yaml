@@ -1,0 +1,13 @@
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://keycloak:8080/realms/my-realm
+
+keycloak:
+  base-url: http://keycloak:8080
+
+logging:
+  loki:
+    url: http://loki:3100/loki/api/v1/push
