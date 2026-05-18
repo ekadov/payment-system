@@ -3,11 +3,11 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: http://keycloak:8080/realms/my-realm
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://keycloak:8080/realms/my-realm}
 
 keycloak:
-  base-url: http://keycloak:8080
+  base-url: ${KEYCLOAK_BASE_URL:http://keycloak:8080}
 
 logging:
   loki:
-    url: http://loki:3100/loki/api/v1/push
+    url: ${LOKI_URL:http://loki:3100/loki/api/v1/push}

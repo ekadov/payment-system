@@ -27,10 +27,10 @@ management:
         enabled: true
 
 keycloak:
-  realm: my-realm
-  client-id: my-client-id
-  admin-username: admin
-  admin-password: password
+  realm: ${KEYCLOAK_REALM:my-realm}
+  client-id: ${KEYCLOAK_CLIENT_ID:my-client-id}
+  admin-username: ${KEYCLOAK_ADMIN_USERNAME:admin}
+  admin-password: ${KEYCLOAK_ADMIN_PASSWORD:password}
 
 logging:
   level:

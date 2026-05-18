@@ -1,0 +1,145 @@
+openapi: 3.0.3
+info:
+  title: Keycloak API
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+
+paths:
+  /realms/{realm}/protocol/openid-connect/token:
+    post:
+      operationId: exchangeToken
+      parameters:
+        - name: realm
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '200':
+          description: Token response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenEndpointResponse'
+
+  /realms/{realm}/protocol/openid-connect/userinfo:
+    get:
+      operationId: getUserInfo
+      parameters:
+        - name: realm
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeycloakUserInfoResponse'
+
+  /admin/realms/{realm}/users:
+    post:
+      operationId: createUser
+      parameters:
+        - name: realm
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: Created
+        '200':
+          description: Created or returned
+
+components:
+  schemas:
+    TokenRequest:
+      type: object
+      properties:
+        grant_type:
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+        refresh_token:
+          type: string
+        scope:
+          type: string
+
+    TokenEndpointResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+        token_type:
+          type: string
+
+    KeycloakUserInfoResponse:
+      type: object
+      properties:
+        sub:
+          type: string
+        email:
+          type: string
+
+    CreateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        username:
+          type: string
+        enabled:
+          type: boolean
+        emailVerified:
+          type: boolean
+        credentials:
+          type: array
+          items:
+            $ref: '#/components/schemas/CredentialRepresentation'
+
+    CredentialRepresentation:
+      type: object
+      properties:
+        type:
+          type: string
+        value:
+          type: string
+        temporary:
+          type: boolean

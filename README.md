@@ -184,3 +184,11 @@ docker compose restart grafana
 ```bash
 docker compose down
 ```
+
+## Запуск тестов
+
+Из individuals-api запустить:
+
+```bash
+./gradlew test
+```

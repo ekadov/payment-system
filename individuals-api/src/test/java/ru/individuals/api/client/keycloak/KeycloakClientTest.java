@@ -7,10 +7,14 @@ import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mapstruct.factory.Mappers;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
+import ru.individuals.api.client.keycloak.generated.api.DefaultApi;
+import ru.individuals.api.client.keycloak.generated.invoker.ApiClient;
+import ru.individuals.api.client.keycloak.mapper.TokenMapper;
+import ru.individuals.api.client.keycloak.mapper.UserMapper;
 import ru.individuals.api.config.KeycloakProperties;
 import ru.individuals.api.dto.TokenRefreshRequest;
 import ru.individuals.api.dto.UserLoginRequest;
@@ -56,10 +60,11 @@ class KeycloakClientTest {
         properties.setAdminUsername("admin");
         properties.setAdminPassword("admin-password");
 
-        WebClient webClient = WebClient.builder()
-                .baseUrl(properties.getBaseUrl())
-                .build();
-        client = new KeycloakClient(webClient, properties);
+        client = new KeycloakClient(
+                UserMapper.INSTANCE,
+                Mappers.getMapper(TokenMapper.class),
+                keycloakApi(properties),
+                properties);
     }
 
     @AfterEach
@@ -119,8 +124,11 @@ class KeycloakClientTest {
         properties.setBaseUrl(server.url("/").toString());
         properties.setClientId("public-client");
         properties.setClientSecret("");
-        WebClient webClient = WebClient.builder().baseUrl(properties.getBaseUrl()).build();
-        KeycloakClient publicClient = new KeycloakClient(webClient, properties);
+        KeycloakClient publicClient = new KeycloakClient(
+                UserMapper.INSTANCE,
+                Mappers.getMapper(TokenMapper.class),
+                keycloakApi(properties),
+                properties);
 
         server.enqueue(new MockResponse()
                 .setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -247,8 +255,8 @@ class KeycloakClientTest {
     @Test
     void createUserShouldSendBearerAndReturnId() throws InterruptedException {
         server.enqueue(new MockResponse()
-                .setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .setBody("{\"id\":\"keycloak-user-id\",\"email\":\"user@example.com\"}"));
+                .setResponseCode(201)
+                .setHeader(HttpHeaders.LOCATION, "/admin/realms/test-realm/users/keycloak-user-id"));
 
         UserRegistrationRequest request = new UserRegistrationRequest();
         request.setEmail("user@example.com");
@@ -297,6 +305,23 @@ class KeycloakClientTest {
     }
 
     @Test
+    void createUserShouldFailWhenLocationHeaderIsMissing() {
+        server.enqueue(new MockResponse().setResponseCode(201));
+
+        UserRegistrationRequest request = new UserRegistrationRequest();
+        request.setEmail("user@example.com");
+        request.setPassword("password");
+        request.setConfirmPassword("password");
+
+        StepVerifier.create(client.createUser("admin-token", request))
+                .expectErrorSatisfies(error -> {
+                    assertThat(error).isInstanceOf(IllegalStateException.class);
+                    assertThat(error.getMessage()).contains("No Location returned");
+                })
+                .verify();
+    }
+
+    @Test
     void getUserInfoShouldSendBearerAndReturnResponse() throws InterruptedException {
         server.enqueue(new MockResponse()
                 .setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -326,5 +351,11 @@ class KeycloakClientTest {
                     assertThat(error.getMessage()).contains("401").contains("unauthorized");
                 })
                 .verify();
+    }
+
+    private DefaultApi keycloakApi(KeycloakProperties properties) {
+        ApiClient apiClient = new ApiClient();
+        apiClient.setBasePath(properties.getBaseUrl());
+        return new DefaultApi(apiClient);
     }
 }

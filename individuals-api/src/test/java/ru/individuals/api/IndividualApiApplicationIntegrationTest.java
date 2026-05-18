@@ -5,52 +5,20 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.reactive.AutoConfigureWebTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.reactive.server.WebTestClient;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
-import org.testcontainers.utility.MountableFile;
+import ru.individuals.api.testsupport.container.IntegrationTestContainers;
 
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient(timeout = "PT30S")
-@Testcontainers
-class IndividualApiApplicationIntegrationTest {
-
-    @Container
-    static final GenericContainer<?> keycloak = new GenericContainer<>(DockerImageName.parse("quay.io/keycloak/keycloak:26.2"))
-            .withEnv("KC_BOOTSTRAP_ADMIN_USERNAME", "admin")
-            .withEnv("KC_BOOTSTRAP_ADMIN_PASSWORD", "admin")
-            .withCopyFileToContainer(
-                    MountableFile.forClasspathResource("realm-config.json"),
-                    "/opt/keycloak/data/import/realm-config.json")
-            .withCommand("start-dev", "--import-realm")
-            .withExposedPorts(8080)
-            .waitingFor(Wait.forHttp("/realms/my-realm/.well-known/openid-configuration").forStatusCode(200));
+@Testcontainers(disabledWithoutDocker = true)
+class IndividualApiApplicationIntegrationTest extends IntegrationTestContainers {
 
     @Autowired
     private WebTestClient webTestClient;
-
-    @DynamicPropertySource
-    static void registerProperties(DynamicPropertyRegistry registry) {
-        String baseUrl = "http://localhost:" + keycloak.getMappedPort(8080);
-        registry.add("keycloak.base-url", () -> baseUrl);
-        registry.add("keycloak.realm", () -> "my-realm");
-        registry.add("keycloak.client-id", () -> "my-client-id");
-        registry.add("keycloak.client-secret", () -> "");
-        registry.add("keycloak.admin-username", () -> "admin");
-        registry.add("keycloak.admin-password", () -> "password");
-        registry.add(
-                "spring.security.oauth2.resourceserver.jwt.issuer-uri",
-                () -> baseUrl + "/realms/my-realm"
-        );
-    }
 
     @Test
     void actuatorHealthShouldBeUp() {
