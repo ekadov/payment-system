@@ -39,6 +39,16 @@ payment-system/
     dashboards/individuals-observability.json
 ```
 
+## Архитектура
+### API диаграмма
+![API диаграмма](./docs/images/img.png)
+
+### Container
+![Container](./docs/images/img_1.png)
+
+### Component
+![Component](./docs/images/img_2.png)
+
 ## API
 
 - Эндпоинты аутентификации:
