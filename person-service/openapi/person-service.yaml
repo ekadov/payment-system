@@ -1,0 +1,353 @@
+openapi: 3.0.3
+info:
+  title: Person Service API
+  description: >-
+    Микросервис управления пользователями (person-service). Транзакционно
+    создаёт, читает, изменяет и удаляет агрегат user + individual + address.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8082
+    description: Local
+
+tags:
+  - name: users
+    description: Управление агрегатом пользователя
+
+paths:
+  /api/v1/users:
+    post:
+      tags: [users]
+      operationId: createUser
+      summary: Транзакционное создание пользователя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: Пользователь создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/users/{id}:
+    get:
+      tags: [users]
+      operationId: getUserById
+      summary: Получение агрегата по идентификатору
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Агрегат пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [users]
+      operationId: updateUser
+      summary: Частичное обновление агрегата
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Агрегат обновлён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [users]
+      operationId: deleteUser
+      summary: Транзакционное удаление агрегата
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204':
+          description: Пользователь удалён
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/users/by-email:
+    get:
+      tags: [users]
+      operationId: getUserByEmail
+      summary: Поиск пользователя по email (без учёта регистра)
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+            format: email
+            maxLength: 1024
+      responses:
+        '200':
+          description: Агрегат пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  parameters:
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Ошибка формата или валидации
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+    NotFound:
+      description: Пользователь не найден
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+    Conflict:
+      description: Email уже занят
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemResponse'
+
+  schemas:
+    CreateUserRequest:
+      type: object
+      required: [email, firstName, lastName, address, individual]
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 1024
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 64
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 64
+        address:
+          $ref: '#/components/schemas/CreateAddressRequest'
+        individual:
+          $ref: '#/components/schemas/CreateIndividualRequest'
+
+    CreateAddressRequest:
+      type: object
+      required: [countryAlpha3, countryAlpha2, city, addressLine]
+      properties:
+        countryAlpha3:
+          type: string
+          minLength: 3
+          maxLength: 3
+        countryAlpha2:
+          type: string
+          minLength: 2
+          maxLength: 2
+        city:
+          type: string
+          minLength: 1
+          maxLength: 64
+        state:
+          type: string
+          maxLength: 64
+        zipCode:
+          type: string
+          maxLength: 32
+        addressLine:
+          type: string
+          minLength: 1
+          maxLength: 128
+
+    CreateIndividualRequest:
+      type: object
+      required: [passportNumber, phoneNumber]
+      properties:
+        passportNumber:
+          type: string
+          minLength: 1
+          maxLength: 32
+        phoneNumber:
+          type: string
+          minLength: 1
+          maxLength: 32
+
+    UpdateUserRequest:
+      type: object
+      description: Частичное обновление; передаются только изменяемые поля
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+          maxLength: 1024
+        firstName:
+          type: string
+          maxLength: 64
+        lastName:
+          type: string
+          maxLength: 64
+        address:
+          $ref: '#/components/schemas/UpdateAddressRequest'
+        individual:
+          $ref: '#/components/schemas/UpdateIndividualRequest'
+
+    UpdateAddressRequest:
+      type: object
+      properties:
+        countryAlpha3:
+          type: string
+          maxLength: 3
+        countryAlpha2:
+          type: string
+          maxLength: 2
+        city:
+          type: string
+          maxLength: 64
+        state:
+          type: string
+          maxLength: 64
+        zipCode:
+          type: string
+          maxLength: 32
+        addressLine:
+          type: string
+          maxLength: 128
+
+    UpdateIndividualRequest:
+      type: object
+      properties:
+        passportNumber:
+          type: string
+          maxLength: 32
+        phoneNumber:
+          type: string
+          maxLength: 32
+
+    UserResponse:
+      type: object
+      required: [id, email, firstName, lastName, filled, createdAt, updatedAt, address, individual]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+        filled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        address:
+          $ref: '#/components/schemas/AddressResponse'
+        individual:
+          $ref: '#/components/schemas/IndividualResponse'
+
+    AddressResponse:
+      type: object
+      required: [id, countryAlpha3, countryAlpha2, city, addressLine]
+      properties:
+        id:
+          type: string
+          format: uuid
+        countryAlpha3:
+          type: string
+        countryAlpha2:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+          nullable: true
+        zipCode:
+          type: string
+          nullable: true
+        addressLine:
+          type: string
+
+    IndividualResponse:
+      type: object
+      required: [id, passportNumber, phoneNumber, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        passportNumber:
+          type: string
+          nullable: true
+        phoneNumber:
+          type: string
+          nullable: true
+        status:
+          type: string
+          example: NEW
+        verifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+        archivedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ProblemResponse:
+      type: object
+      description: Ответ об ошибке в формате RFC 9457 (application/problem+json)
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
