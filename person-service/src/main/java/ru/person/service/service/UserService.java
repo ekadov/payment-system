@@ -73,21 +73,7 @@ public class UserService {
             throw new EmailAlreadyExistsException("User with email '%s' already exists".formatted(request.getEmail()));
         }
 
-        if (request.getEmail() != null) {
-            user.setEmail(request.getEmail());
-        }
-        if (request.getFirstName() != null) {
-            user.setFirstName(request.getFirstName());
-        }
-        if (request.getLastName() != null) {
-            user.setLastName(request.getLastName());
-        }
-        if (request.getAddress() != null) {
-            updateAddress(user.getAddress(), request.getAddress());
-        }
-        if (request.getIndividual() != null) {
-            updateIndividual(user.getIndividual(), request.getIndividual());
-        }
+        checkAndSetCreateRequest(request, user);
 
         user.setFilled(isFilled(user));
         try {
@@ -139,18 +125,7 @@ public class UserService {
             }
             address.setCountry(resolveCountry(request.getCountryAlpha2(), request.getCountryAlpha3()));
         }
-        if (request.getCity() != null) {
-            address.setCity(request.getCity());
-        }
-        if (request.getState() != null) {
-            address.setState(request.getState());
-        }
-        if (request.getZipCode() != null) {
-            address.setZipCode(request.getZipCode());
-        }
-        if (request.getAddressLine() != null) {
-            address.setAddressLine(request.getAddressLine());
-        }
+        checkAndSetUpdateRequest(address, request);
         address.setUpdated(Instant.now());
     }
 
@@ -195,5 +170,39 @@ public class UserService {
             return new EmailAlreadyExistsException("User with email '%s' already exists".formatted(email));
         }
         return exception;
+    }
+
+
+    private void checkAndSetCreateRequest(UpdateUserRequest request, UserEntity user) {
+        if (request.getEmail() != null) {
+            user.setEmail(request.getEmail());
+        }
+        if (request.getFirstName() != null) {
+            user.setFirstName(request.getFirstName());
+        }
+        if (request.getLastName() != null) {
+            user.setLastName(request.getLastName());
+        }
+        if (request.getAddress() != null) {
+            updateAddress(user.getAddress(), request.getAddress());
+        }
+        if (request.getIndividual() != null) {
+            updateIndividual(user.getIndividual(), request.getIndividual());
+        }
+    }
+
+    private static void checkAndSetUpdateRequest(AddressEntity address, UpdateAddressRequest request) {
+        if (request.getCity() != null) {
+            address.setCity(request.getCity());
+        }
+        if (request.getState() != null) {
+            address.setState(request.getState());
+        }
+        if (request.getZipCode() != null) {
+            address.setZipCode(request.getZipCode());
+        }
+        if (request.getAddressLine() != null) {
+            address.setAddressLine(request.getAddressLine());
+        }
     }
 }

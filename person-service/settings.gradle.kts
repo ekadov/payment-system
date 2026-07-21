@@ -19,3 +19,5 @@ rootProject.name = "person-service"
 
 include("person-service-client")
 project(":person-service-client").projectDir = file("client")
+
+include("client")
