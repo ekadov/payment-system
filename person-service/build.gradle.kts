@@ -39,9 +39,10 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-flyway")
+    implementation("org.springframework.data:spring-data-envers")
     implementation("org.flywaydb:flyway-core")
     implementation("org.flywaydb:flyway-database-postgresql")
-    implementation("org.hibernate.orm:hibernate-envers")
+
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:$springdocOpenapiStarterWebfluxUiVersion")
 
     implementation("io.micrometer:micrometer-tracing-bridge-otel")
