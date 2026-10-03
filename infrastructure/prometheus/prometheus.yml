@@ -20,3 +20,12 @@ scrape_configs:
     relabel_configs:
       - target_label: env
         replacement: 'production'
+
+  - job_name: 'transaction-service'
+    metrics_path: '/api/v1/actuator/prometheus'
+    static_configs:
+      - targets: ['transaction-service:8084']
+
+    relabel_configs:
+      - target_label: env
+        replacement: 'production'

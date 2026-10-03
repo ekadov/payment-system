@@ -1,0 +1,100 @@
+server:
+  port: 8084
+  servlet:
+    context-path: /api/v1
+
+spring:
+  application:
+    name: transaction-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/transaction_service?currentSchema=transaction}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+      org.hibernate.envers.default_schema: transaction
+  flyway:
+    enabled: true
+    schemas: transaction
+    locations: classpath:migration
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # События сериализуются в JSON в KafkaProducer, в Kafka уходит строка без type-заголовков.
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+    consumer:
+      group-id: transaction-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: manual_immediate
+      # Продолжение трассы из заголовка traceparent входящего сообщения.
+      observation-enabled: true
+    template:
+      observation-enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        transactions.operation.duration: true
+        transactions.finalize.latency: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+# Префикс /api/v1 задаёт server.servlet.context-path; без этого сгенерированные контроллеры
+# добавили бы его второй раз (base-path из servers в OpenAPI) — /api/v1/api/v1/...
+openapi:
+  transactionService:
+    base-path: ""
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  loki:
+    url: ${LOKI_URL:http://localhost:3100/loki/api/v1/push}
+
+transaction:
+  kafka:
+    topics:
+      deposit-requested: deposit-requested
+      deposit-completed: deposit-completed
+      withdrawal-requested: withdrawal-requested
+      withdrawal-completed: withdrawal-completed
+      withdrawal-failed: withdrawal-failed
+    partitions: 3
+    retry:
+      attempts: 3
+      interval: 1s

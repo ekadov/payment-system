@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    driver-class-name: org.apache.shardingsphere.driver.ShardingSphereDriver
+    url: jdbc:shardingsphere:classpath:sharding.yaml?placeholder-type=system_props
+  jpa:
+    properties:
+      hibernate.default_schema: transaction
+  # Схема на шардах создаётся init-скриптом PostgreSQL (docker-compose.yaml):
+  flyway:
+    enabled: false

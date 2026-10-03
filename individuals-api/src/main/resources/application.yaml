@@ -25,6 +25,12 @@ management:
     metrics:
       export:
         enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
 keycloak:
   realm: ${KEYCLOAK_REALM:my-realm}
@@ -36,3 +42,6 @@ logging:
   level:
     org:
       springframework: INFO
+
+transaction-service:
+  base-url: ${TRANSACTION_SERVICE_BASE_URL:http://localhost:8084/api/v1}

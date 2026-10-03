@@ -195,6 +195,93 @@ docker compose restart grafana
 docker compose down
 ```
 
+## Transaction Service
+
+Transaction Service доступен на `http://localhost:8084/api/v1`, Swagger UI - на
+`http://localhost:8084/api/v1/swagger-ui.html`, метрики - на
+`http://localhost:8084/api/v1/actuator/prometheus`.
+
+Сервис поддерживает создание и чтение кошельков, а также `init`, `confirm`,
+получение статуса и поиск транзакций. `init` выполняет только расчёт условий.
+Запись транзакции и изменение баланса начинаются исключительно на `confirm`.
+Deposit и withdrawal финализируются сообщениями Kafka; transfer завершается
+синхронно в одной транзакции с пессимистической блокировкой кошельков.
+
+Docker Compose запускает два PostgreSQL-шарда (`5435`, `5436`), Kafka
+(`29092`) и Transaction Service. Профиль `sharding` использует конфигурацию
+Apache ShardingSphere JDBC из `transaction-service/src/main/resources/sharding.yaml`.
+
+Ключевые решения:
+
+- `wallets` и `transactions` шардируются по `user_uid` (INLINE-алгоритм в `sharding.yaml`),
+  `wallet_types` - broadcast-таблица. Схема на шардах создаётся init-скриптом PostgreSQL
+  из `migration/V1__init_transactions_schema.sql` (Flyway в профиле `sharding` выключен).
+- Перевод между пользователями может затрагивать два шарда, поэтому включены XA-транзакции
+  ShardingSphere (Atomikos); на PostgreSQL для этого задан `max_prepared_transactions`.
+- События `DepositRequested`/`WithdrawalRequested` отправляются в Kafka после коммита
+  транзакции БД.
+- Повторная доставка `DepositCompleted`/`Withdrawal*` не меняет уже финализированную транзакцию.
+- Платёжный провайдер - внешняя система: сервис публикует `deposit-requested`/`withdrawal-requested`
+  и ждёт ответ в `deposit-completed`, `withdrawal-completed` или `withdrawal-failed`.
+
+### Пример (напрямую в Transaction Service)
+
+Ответ провайдера отправляется вручную.
+
+```bash
+USER=11111111-1111-1111-1111-111111111111
+# 1. Кошелёк
+curl -s -X POST localhost:8084/api/v1/wallets -H 'Content-Type: application/json' \
+  -d '{"userUid":"'$USER'","walletTypeUid":"00000000-0000-0000-0000-000000000001","name":"main"}'
+WALLET=<uid из ответа>
+# 2. Расчёт условий пополнения (без записи в БД)
+curl -s -X POST localhost:8084/api/v1/transactions/deposit/init -H 'Content-Type: application/json' \
+  -d '{"userUid":"'$USER'","walletUid":"'$WALLET'","amount":100,"currency":"USD","paymentMethodId":1}'
+# 3. Подтверждение: транзакция создаётся в статусе PENDING, в Kafka уходит DepositRequested
+curl -s -X POST localhost:8084/api/v1/transactions/deposit/confirm -H 'Content-Type: application/json' \
+  -d '{"userUid":"'$USER'","walletUid":"'$WALLET'","amount":100,"currency":"USD","paymentMethodId":1}'
+TX=<transactionId из ответа>
+docker exec payment-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic deposit-requested --from-beginning --timeout-ms 5000
+# 4. Ответ провайдера (вручную)
+echo '{"transactionId":"'$TX'","status":"COMPLETED","amount":100}' | docker exec -i payment-kafka \
+  /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic deposit-completed
+# 5. Статус COMPLETED, баланс 100.00
+curl -s localhost:8084/api/v1/transactions/$TX/status
+curl -s localhost:8084/api/v1/wallets/$WALLET
+```
+
+Для вывода ответ провайдера отправляется в `withdrawal-completed` или в `withdrawal-failed`
+(`{"transactionId":"...","failureReason":"INSUFFICIENT_FUNDS_EXTERNAL"}`); при `withdrawal-failed`
+сумма и комиссия возвращаются на кошелёк.
+
+На Windows перед `docker exec` с путями внутри контейнера нужно выполнить
+`export MSYS_NO_PATHCONV=1`.
+
+Через Individuals API (`http://localhost:8081/api/v1/...`) доступны те же операции с
+Bearer-токеном Keycloak; `userUid` в запросе должен совпадать с `sub` токена.
+
+Трасса `individuals-api -> transaction-service -> Kafka` видна в Grafana (Explore -> Tempo),
+логи - в Loki (`{app="transaction-service"}`).
+
+Предустановленные типы кошельков:
+
+- USD: `00000000-0000-0000-0000-000000000001`
+- EUR: `00000000-0000-0000-0000-000000000002`
+
+Архитектурные и sequence-диаграммы находятся в
+`docs/transaction-architecture.md`.
+
+Тесты Transaction Service:
+
+```bash
+cd transaction-service
+./gradlew test
+```
+
+Feign-клиент для оркестратора генерируется из того же контракта при сборке individuals-api
+(задача `generateTransactionClient`).
+
 ## Запуск тестов
 
 Из individuals-api запустить:

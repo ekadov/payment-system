@@ -50,12 +50,18 @@ services:
       KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/my-realm
       KEYCLOAK_BASE_URL: http://keycloak:8080
       LOKI_URL: http://loki:3100/loki/api/v1/push
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      TRANSACTION_SERVICE_BASE_URL: http://transaction-service:8084/api/v1
     depends_on:
+      tempo:
+        condition: service_healthy
       keycloak:
         condition: service_healthy
       prometheus:
         condition: service_healthy
       loki:
+        condition: service_healthy
+      transaction-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--spider", "http://localhost:8081/actuator/health"]
@@ -170,6 +176,7 @@ services:
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      LOKI_URL: http://loki:3100/loki/api/v1/push
     depends_on:
       person-postgres:
         condition: service_healthy
@@ -183,6 +190,96 @@ services:
       timeout: 5s
       retries: 10
       start_period: 60s
+
+  transaction-postgres-0:
+    image: postgres:17
+    container_name: transaction-postgres-0
+    # XA-транзакции ShardingSphere (перевод между шардами) требуют prepared transactions.
+    command: ["postgres", "-c", "max_prepared_transactions=100"]
+    environment:
+      POSTGRES_DB: transaction_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - ./transaction-service/src/main/resources/migration/V1__init_transactions_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d transaction_service"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  transaction-postgres-1:
+    image: postgres:17
+    container_name: transaction-postgres-1
+    command: ["postgres", "-c", "max_prepared_transactions=100"]
+    environment:
+      POSTGRES_DB: transaction_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - ./transaction-service/src/main/resources/migration/V1__init_transactions_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d transaction_service"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: apache/kafka:3.9.1
+    container_name: payment-kafka
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: CONTROLLER://:29093,PLAINTEXT://:9092,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  transaction-service:
+    build:
+      context: .
+      dockerfile: transaction-service/Dockerfile
+    container_name: transaction-service
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_PROFILES_ACTIVE: sharding,loki
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      LOKI_URL: http://loki:3100/loki/api/v1/push
+    depends_on:
+      loki:
+        condition: service_healthy
+      transaction-postgres-0:
+        condition: service_healthy
+      transaction-postgres-1:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      tempo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:8084/api/v1/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
 
 volumes:
   nexus-data:
