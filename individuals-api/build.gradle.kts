@@ -89,6 +89,14 @@ openApiGenerate {
     generateModelDocumentation.set(false)
     generateApiTests.set(false)
     generateModelTests.set(false)
+    cleanupOutput.set(true)
+    schemaMappings.set(
+        listOf(
+            "CreateWalletRequest", "WalletResponse", "WalletStatus", "TransactionType", "TransactionStatus",
+            "TransactionRequest", "TransactionInitResponse", "TransactionConfirmResponse",
+            "TransactionStatusResponse", "TransactionPageResponse"
+        ).associateWith { "ru.individuals.api.client.transaction.generated.model.$it" }
+    )
     configOptions.set(
         mapOf(
             "dateLibrary" to "java8",

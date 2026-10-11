@@ -12,7 +12,6 @@ plugins {
     id("org.openapi.generator")
 }
 
-// Testcontainers 2.x: версии 1.x используют Docker API 1.32, который Docker Engine 29+ больше не поддерживает.
 extra["testcontainers.version"] = version("testcontainers.version")
 
 group = project.findProperty("group") as String? ?: "ru.transaction.service"
@@ -46,6 +45,7 @@ dependencies {
     implementation("org.springframework.kafka:spring-kafka")
     implementation("org.apache.shardingsphere:shardingsphere-jdbc:$shardingsphereVersion")
     implementation("org.apache.shardingsphere:shardingsphere-transaction-xa-core:$shardingsphereVersion")
+    implementation("javax.transaction:javax.transaction-api:1.3")
 
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:$springdocOpenapiStarterWebfluxUiVersion")
 
@@ -97,7 +97,6 @@ openApiGenerate {
     configOptions.set(
         mapOf(
             "library" to "spring-boot",
-            // EnumConverterConfiguration (deposit -> TransactionType.DEPOSIT) должен попасть под component scan.
             "configPackage" to "ru.transaction.service.generated.configuration",
             "delegatePattern" to "true",
             "useSpringBoot3" to "true",

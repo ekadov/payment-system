@@ -132,7 +132,7 @@ class TransactionFlowIntegrationTest {
 
         UUID completed = confirm("withdrawal", withdrawalJson(userUid, walletUid, "50.00"), "PENDING");
         awaitRequested("withdrawal-requested", completed);
-        // Статус в сообщении не указан — он определяется по топику withdrawal-completed.
+        // Статус в сообщении не указан - он определяется по топику withdrawal-completed.
         provider("withdrawal-completed", completed, "{\"transactionId\":\"%s\"}");
         awaitStatus(completed, "COMPLETED");
         assertThat(balance(walletUid)).isEqualByComparingTo("149.50");

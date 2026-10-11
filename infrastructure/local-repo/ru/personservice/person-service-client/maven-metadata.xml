@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>ru.personservice</groupId>
+  <artifactId>person-service-client</artifactId>
+  <versioning>
+    <latest>0.0.1-SNAPSHOT</latest>
+    <versions>
+      <version>0.0.1-SNAPSHOT</version>
+    </versions>
+    <lastUpdated>20260705180919</lastUpdated>
+  </versioning>
+</metadata>

@@ -1,0 +1,6 @@
+**/build
+**/.gradle
+.gradle-home2
+.gradle-local
+.idea
+.git

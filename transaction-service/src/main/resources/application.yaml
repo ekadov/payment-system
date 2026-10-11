@@ -27,10 +27,14 @@ spring:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      # События сериализуются в JSON в KafkaProducer, в Kafka уходит строка без type-заголовков.
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
       acks: all
       retries: 3
+      properties:
+        enable.idempotence: true
+        max.block.ms: 5000
+        request.timeout.ms: 5000
+        delivery.timeout.ms: 10000
     consumer:
       group-id: transaction-service
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
@@ -39,7 +43,6 @@ spring:
       enable-auto-commit: false
     listener:
       ack-mode: manual_immediate
-      # Продолжение трассы из заголовка traceparent входящего сообщения.
       observation-enabled: true
     template:
       observation-enabled: true
@@ -48,7 +51,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus,metrics
+        include: health,info,prometheus,metrics,dltreplay
   endpoint:
     health:
       show-details: always
@@ -70,8 +73,6 @@ management:
     tracing:
       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
-# Префикс /api/v1 задаёт server.servlet.context-path; без этого сгенерированные контроллеры
-# добавили бы его второй раз (base-path из servers в OpenAPI) — /api/v1/api/v1/...
 openapi:
   transactionService:
     base-path: ""
@@ -98,3 +99,11 @@ transaction:
     retry:
       attempts: 3
       interval: 1s
+      max-interval: 30s
+  outbox:
+    relay-enabled: true
+    poll-interval: PT0.5S
+    batch-size: 100
+    send-timeout: 15s
+    retry-interval: 1s
+    max-retry-interval: 1m

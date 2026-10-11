@@ -204,6 +204,7 @@ services:
       - "5435:5432"
     volumes:
       - ./transaction-service/src/main/resources/migration/V1__init_transactions_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./transaction-service/src/main/resources/migration/V2__outbox_events.sql:/docker-entrypoint-initdb.d/02-outbox.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d transaction_service"]
       interval: 10s
@@ -222,6 +223,7 @@ services:
       - "5436:5432"
     volumes:
       - ./transaction-service/src/main/resources/migration/V1__init_transactions_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./transaction-service/src/main/resources/migration/V2__outbox_events.sql:/docker-entrypoint-initdb.d/02-outbox.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d transaction_service"]
       interval: 10s

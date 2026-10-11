@@ -7,7 +7,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.ApplicationEventPublisher;
 import ru.transaction.service.config.TransactionKafkaProperties;
 import ru.transaction.service.entity.PaymentTypeEntity;
 import ru.transaction.service.entity.TransactionsEntity;
@@ -18,7 +17,6 @@ import ru.transaction.service.exception.ConflictException;
 import ru.transaction.service.generated.dto.TransactionRequest;
 import ru.transaction.service.generated.dto.TransactionType;
 import ru.transaction.service.messaging.event.DepositRequested;
-import ru.transaction.service.messaging.event.OutgoingEvent;
 import ru.transaction.service.messaging.event.WithdrawalRequested;
 import ru.transaction.service.metrics.TransactionMetrics;
 import ru.transaction.service.repository.TransactionsRepository;
@@ -32,6 +30,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,7 +39,7 @@ class TransactionServiceTest {
     private static final TransactionKafkaProperties KAFKA_PROPERTIES = new TransactionKafkaProperties(
             new TransactionKafkaProperties.Topics("deposit-requested", "deposit-completed",
                     "withdrawal-requested", "withdrawal-completed", "withdrawal-failed"),
-            1, new TransactionKafkaProperties.Retry(1, Duration.ofSeconds(1)));
+            1, new TransactionKafkaProperties.Retry(1, Duration.ofSeconds(1), Duration.ofSeconds(1)));
     private final UUID userUid = UUID.randomUUID();
     private final UUID walletUid = UUID.randomUUID();
     @Mock
@@ -48,12 +47,12 @@ class TransactionServiceTest {
     @Mock
     private WalletService walletService;
     @Mock
-    private ApplicationEventPublisher eventPublisher;
+    private OutboxService outboxService;
     private TransactionService transactionService;
 
     @BeforeEach
     void setUp() {
-        transactionService = new TransactionService(transactionsRepository, walletService, eventPublisher,
+        transactionService = new TransactionService(transactionsRepository, walletService, outboxService,
                 KAFKA_PROPERTIES, new TransactionMetrics(new SimpleMeterRegistry()));
     }
 
@@ -68,7 +67,7 @@ class TransactionServiceTest {
         assertThat(response.getAvailable()).isTrue();
         assertThat(response.getFee()).isEqualByComparingTo("0.20");
         assertThat(response.getTotalAmount()).isEqualByComparingTo("20.20");
-        verifyNoInteractions(transactionsRepository, eventPublisher);
+        verifyNoInteractions(transactionsRepository, outboxService);
     }
 
     @Test
@@ -94,11 +93,10 @@ class TransactionServiceTest {
 
         assertThat(response.getStatus().name()).isEqualTo("PENDING");
         assertThat(wallet.getBalance()).isEqualByComparingTo("5.00");
-        ArgumentCaptor<OutgoingEvent> event = ArgumentCaptor.forClass(OutgoingEvent.class);
-        verify(eventPublisher).publishEvent(event.capture());
-        assertThat(event.getValue().topic()).isEqualTo("deposit-requested");
-        assertThat(event.getValue().key()).isEqualTo(response.getTransactionId().toString());
-        DepositRequested deposit = (DepositRequested) event.getValue().payload();
+        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+        verify(outboxService).enqueue(eq("deposit-requested"), eq(response.getTransactionId().toString()),
+                eq(userUid), event.capture());
+        DepositRequested deposit = (DepositRequested) event.getValue();
         assertThat(deposit.getAmount()).isEqualByComparingTo("100.00");
         assertThat(deposit.getFee()).isEqualByComparingTo("1.00");
         assertThat(deposit.getTotalAmount()).isEqualByComparingTo("101.00");
@@ -115,10 +113,10 @@ class TransactionServiceTest {
 
         assertThat(response.getStatus().name()).isEqualTo("PENDING");
         assertThat(wallet.getBalance()).isEqualByComparingTo("49.50");
-        ArgumentCaptor<OutgoingEvent> event = ArgumentCaptor.forClass(OutgoingEvent.class);
-        verify(eventPublisher).publishEvent(event.capture());
-        assertThat(event.getValue().topic()).isEqualTo("withdrawal-requested");
-        assertThat(((WithdrawalRequested) event.getValue().payload()).getDestination()).isEqualTo("Visa **** 1234");
+        ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+        verify(outboxService).enqueue(eq("withdrawal-requested"), eq(response.getTransactionId().toString()),
+                eq(userUid), event.capture());
+        assertThat(((WithdrawalRequested) event.getValue()).getDestination()).isEqualTo("Visa **** 1234");
     }
 
     @Test
@@ -131,7 +129,7 @@ class TransactionServiceTest {
                 .isInstanceOf(ConflictException.class);
         assertThat(wallet.getBalance()).isEqualByComparingTo("10.00");
         verify(transactionsRepository, never()).saveAndFlush(any());
-        verifyNoInteractions(eventPublisher);
+        verifyNoInteractions(outboxService);
     }
 
     @Test
@@ -150,7 +148,7 @@ class TransactionServiceTest {
         assertThat(response.getStatus().name()).isEqualTo("COMPLETED");
         assertThat(source.getBalance()).isEqualByComparingTo("79.90");
         assertThat(target.getBalance()).isEqualByComparingTo("30.00");
-        verifyNoInteractions(eventPublisher);
+        verifyNoInteractions(outboxService);
     }
 
     @Test

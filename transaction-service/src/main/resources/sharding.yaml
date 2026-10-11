@@ -29,8 +29,14 @@ rules:
           standard:
             shardingColumn: user_uid
             shardingAlgorithmName: user-hash
+      outbox_events:
+        actualDataNodes: shard$->{0..1}.outbox_events
+        databaseStrategy:
+          standard:
+            shardingColumn: user_uid
+            shardingAlgorithmName: user-hash
     bindingTables:
-      - wallets,transactions
+      - wallets,transactions,outbox_events
     shardingAlgorithms:
       user-hash:
         type: INLINE
@@ -39,11 +45,10 @@ rules:
   - !BROADCAST
     tables:
       - wallet_types
-  # Перевод между пользователями затрагивает два шарда: XA (2PC) делает списание и зачисление атомарными.
-  # Требует max_prepared_transactions > 0 на каждом PostgreSQL.
-  - !TRANSACTION
-    defaultType: XA
-    providerType: Atomikos
+
+transaction:
+  defaultType: XA
+  providerType: Atomikos
 
 props:
   sql-show: false

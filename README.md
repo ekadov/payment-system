@@ -213,14 +213,21 @@ Apache ShardingSphere JDBC из `transaction-service/src/main/resources/sharding
 
 Ключевые решения:
 
-- `wallets` и `transactions` шардируются по `user_uid` (INLINE-алгоритм в `sharding.yaml`),
-  `wallet_types` - broadcast-таблица. Схема на шардах создаётся init-скриптом PostgreSQL
-  из `migration/V1__init_transactions_schema.sql` (Flyway в профиле `sharding` выключен).
+- `wallets`, `transactions` и `outbox_events` шардируются по `user_uid` (INLINE-алгоритм в `sharding.yaml`),
+  `wallet_types` - broadcast-таблица. Схема на шардах создаётся init-скриптами PostgreSQL
+  из `migration/V1__init_transactions_schema.sql` и `migration/V2__outbox_events.sql`
+  (Flyway в профиле `sharding` выключен).
 - Перевод между пользователями может затрагивать два шарда, поэтому включены XA-транзакции
   ShardingSphere (Atomikos); на PostgreSQL для этого задан `max_prepared_transactions`.
-- События `DepositRequested`/`WithdrawalRequested` отправляются в Kafka после коммита
-  транзакции БД.
+- События `DepositRequested`/`WithdrawalRequested` сохраняются в таблицу `outbox_events` в той же
+  транзакции, что и операция (transactional outbox). `OutboxRelay` отправляет их в Kafka и помечает
+  `SENT` только после подтверждения брокера; при ошибке событие отправляется повторно с нарастающей
+  паузой, в том числе после перезапуска сервиса. Доставка at-least-once: получатель отсекает дубли
+  по ключу сообщения (`transactionId`).
 - Повторная доставка `DepositCompleted`/`Withdrawal*` не меняет уже финализированную транзакцию.
+- Ответ провайдера не теряется: временные ошибки БД повторяются до успеха, невалидные сообщения
+  и сообщения, для которых исчерпаны попытки, попадают в `<topic>.DLT`. Переотправить их в исходные
+  топики: `curl -X POST localhost:8084/api/v1/actuator/dltreplay`.
 - Платёжный провайдер - внешняя система: сервис публикует `deposit-requested`/`withdrawal-requested`
   и ждёт ответ в `deposit-completed`, `withdrawal-completed` или `withdrawal-failed`.
 
@@ -258,8 +265,17 @@ curl -s localhost:8084/api/v1/wallets/$WALLET
 На Windows перед `docker exec` с путями внутри контейнера нужно выполнить
 `export MSYS_NO_PATHCONV=1`.
 
-Через Individuals API (`http://localhost:8081/api/v1/...`) доступны те же операции с
-Bearer-токеном Keycloak; `userUid` в запросе должен совпадать с `sub` токена.
+Через Individuals API (`http://localhost:8081/v1/...`) доступны те же операции с
+Bearer-токеном Keycloak; `userUid` в запросе должен совпадать с `sub` токена, иначе ответ `403`.
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8081/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"user11@example.com","password":"password"}' | jq -r .access_token)
+USER=$(curl -s localhost:8081/v1/auth/me -H "Authorization: Bearer $TOKEN" | jq -r .id)
+curl -s -X POST localhost:8081/v1/wallets -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"userUid":"'$USER'","walletTypeUid":"00000000-0000-0000-0000-000000000001","name":"main"}'
+```
 
 Трасса `individuals-api -> transaction-service -> Kafka` видна в Grafana (Explore -> Tempo),
 логи - в Loki (`{app="transaction-service"}`).

@@ -2,7 +2,6 @@ package ru.transaction.service.service;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -17,7 +16,6 @@ import ru.transaction.service.exception.ConflictException;
 import ru.transaction.service.exception.NotFoundException;
 import ru.transaction.service.generated.dto.*;
 import ru.transaction.service.messaging.event.DepositRequested;
-import ru.transaction.service.messaging.event.OutgoingEvent;
 import ru.transaction.service.messaging.event.WithdrawalRequested;
 import ru.transaction.service.metrics.TransactionMetrics;
 import ru.transaction.service.repository.TransactionsRepository;
@@ -44,7 +42,7 @@ public class TransactionService {
 
     private final TransactionsRepository transactionsRepository;
     private final WalletService walletService;
-    private final ApplicationEventPublisher eventPublisher;
+    private final OutboxService outboxService;
     private final TransactionKafkaProperties kafkaProperties;
     private final TransactionMetrics metrics;
 
@@ -186,8 +184,8 @@ public class TransactionService {
         event.setCurrency(command.currency());
         event.setPaymentMethodId(command.paymentMethodId());
         event.setTimestamp(Instant.now());
-        eventPublisher.publishEvent(new OutgoingEvent(kafkaProperties.topics().depositRequested(),
-                transaction.getUid().toString(), event));
+        outboxService.enqueue(kafkaProperties.topics().depositRequested(), transaction.getUid().toString(),
+                command.userUid(), event);
         return transaction;
     }
 
@@ -207,8 +205,8 @@ public class TransactionService {
         event.setPaymentMethodId(command.paymentMethodId());
         event.setDestination(command.destination());
         event.setTimestamp(Instant.now());
-        eventPublisher.publishEvent(new OutgoingEvent(kafkaProperties.topics().withdrawalRequested(),
-                transaction.getUid().toString(), event));
+        outboxService.enqueue(kafkaProperties.topics().withdrawalRequested(), transaction.getUid().toString(),
+                command.userUid(), event);
         return transaction;
     }
 
