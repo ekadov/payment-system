@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -36,6 +37,7 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static ru.transaction.service.testsupport.TestData.USD_WALLET_TYPE;
@@ -135,7 +137,11 @@ class KafkaErrorHandlingIntegrationTest {
         assertThat(transactionService.getStatus(transactionId).getStatus()).isEqualTo(TransactionStatus.PENDING);
 
         doCallRealMethod().when(transactionService).finalizeWithdrawal(eq(transactionId), any(), any());
-        mockMvc.perform(post("/actuator/dltreplay")).andExpect(status().isOk());
+        mockMvc.perform(post("/actuator/dltreplay")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/actuator/dltreplay").with(jwt())).andExpect(status().isForbidden());
+        mockMvc.perform(post("/actuator/dltreplay")
+                        .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_admin"))))
+                .andExpect(status().isOk());
 
         awaitStatus(transactionId, TransactionStatus.COMPLETED);
     }
@@ -144,7 +150,7 @@ class KafkaErrorHandlingIntegrationTest {
         UUID userUid = UUID.randomUUID();
         UUID walletUid = walletService.createWallet(new CreateWalletRequest(userUid, USD_WALLET_TYPE, "main")).getUid();
         jdbcTemplate.update("update transaction.wallets set balance = 100.00 where uid = ?", walletUid);
-        return transactionService.confirm(TransactionType.WITHDRAWAL,
+        return transactionService.confirm(TransactionType.WITHDRAWAL, UUID.randomUUID(),
                         new TransactionRequest(userUid, walletUid, new BigDecimal("10.00"))
                                 .currency("USD").paymentMethodId(1L))
                 .getTransactionId();

@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,6 +32,7 @@ import ru.individuals.api.client.transaction.generated.model.TransactionStatus;
 import ru.individuals.api.client.transaction.generated.model.TransactionStatusResponse;
 import ru.individuals.api.client.transaction.generated.model.TransactionType;
 import ru.individuals.api.client.transaction.generated.model.WalletResponse;
+import ru.individuals.api.config.TransactionServiceTokenRelay;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -52,12 +54,12 @@ public class TransactionProxyController {
     public Mono<ResponseEntity<WalletResponse>> createWallet(@AuthenticationPrincipal Jwt jwt,
                                                               @RequestBody CreateWalletRequest request) {
         requireCurrentUser(jwt, request.getUserUid());
-        return blocking(() -> ResponseEntity.status(201).body(walletsApi.createWallet(request)));
+        return blocking(jwt, () -> ResponseEntity.status(201).body(walletsApi.createWallet(request)));
     }
 
     @GetMapping("/wallets/{walletUid}")
     public Mono<WalletResponse> getWallet(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID walletUid) {
-        return blocking(() -> {
+        return blocking(jwt, () -> {
             WalletResponse wallet = walletsApi.getWallet(walletUid);
             requireCurrentUser(jwt, wallet.getUserUid());
             return wallet;
@@ -67,28 +69,29 @@ public class TransactionProxyController {
     @GetMapping("/wallets/user/{userUid}")
     public Mono<List<WalletResponse>> getUserWallets(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID userUid) {
         requireCurrentUser(jwt, userUid);
-        return blocking(() -> walletsApi.getUserWallets(userUid));
+        return blocking(jwt, () -> walletsApi.getUserWallets(userUid));
     }
 
     @PostMapping("/transactions/{type}/init")
     public Mono<TransactionInitResponse> init(@AuthenticationPrincipal Jwt jwt, @PathVariable TransactionType type,
                                                @RequestBody TransactionRequest request) {
         requireCurrentUser(jwt, request.getUserUid());
-        return blocking(() -> transactionsApi.initTransaction(type, request));
+        return blocking(jwt, () -> transactionsApi.initTransaction(type, request));
     }
 
     @PostMapping("/transactions/{type}/confirm")
     public Mono<TransactionConfirmResponse> confirm(@AuthenticationPrincipal Jwt jwt,
                                                      @PathVariable TransactionType type,
+                                                     @RequestHeader("Idempotency-Key") UUID idempotencyKey,
                                                      @RequestBody TransactionRequest request) {
         requireCurrentUser(jwt, request.getUserUid());
-        return blocking(() -> transactionsApi.confirmTransaction(type, request));
+        return blocking(jwt, () -> transactionsApi.confirmTransaction(type, idempotencyKey, request));
     }
 
     @GetMapping("/transactions/{transactionId}/status")
     public Mono<TransactionStatusResponse> status(@AuthenticationPrincipal Jwt jwt,
                                                   @PathVariable UUID transactionId) {
-        return blocking(() -> {
+        return blocking(jwt, () -> {
             TransactionStatusResponse response = transactionsApi.getTransactionStatus(transactionId);
             requireCurrentUser(jwt, response.getUserUid());
             return response;
@@ -105,7 +108,7 @@ public class TransactionProxyController {
                                                @RequestParam(defaultValue = "0") Integer page,
                                                @RequestParam(defaultValue = "20") Integer size) {
         UUID userUid = currentUser(jwt);
-        return blocking(() -> transactionsApi.findTransactions(userUid, walletUid, type, status,
+        return blocking(jwt, () -> transactionsApi.findTransactions(userUid, walletUid, type, status,
                 dateFrom, dateTo, page, size));
     }
 
@@ -131,10 +134,10 @@ public class TransactionProxyController {
         }
     }
 
-    private <T> Mono<T> blocking(java.util.concurrent.Callable<T> operation) {
+    private <T> Mono<T> blocking(Jwt jwt, java.util.concurrent.Callable<T> operation) {
         return Mono.deferContextual(context -> Mono.fromCallable(() -> {
             try (ContextSnapshot.Scope ignored = CONTEXT_SNAPSHOT_FACTORY.setThreadLocalsFrom(context)) {
-                return operation.call();
+                return TransactionServiceTokenRelay.callAs(jwt, operation);
             }
         })).subscribeOn(Schedulers.boundedElastic());
     }

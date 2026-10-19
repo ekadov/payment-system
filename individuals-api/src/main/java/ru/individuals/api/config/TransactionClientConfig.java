@@ -1,5 +1,6 @@
 package ru.individuals.api.config;
 
+import feign.Retryer;
 import feign.micrometer.MicrometerObservationCapability;
 import io.micrometer.observation.ObservationRegistry;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,7 +17,14 @@ public class TransactionClientConfig {
     public ApiClient transactionApiClient(@Value("${transaction-service.base-url}") String baseUrl,
                                           ObservationRegistry observationRegistry) {
         ApiClient apiClient = new ApiClient().setBasePath(baseUrl);
-        apiClient.getFeignBuilder().addCapability(new MicrometerObservationCapability(observationRegistry));
+
+        apiClient.getFeignBuilder()
+                .client(new feign.okhttp.OkHttpClient(new okhttp3.OkHttpClient.Builder()
+                        .retryOnConnectionFailure(false)
+                        .build()))
+                .retryer(Retryer.NEVER_RETRY)
+                .requestInterceptor(TransactionServiceTokenRelay.interceptor())
+                .addCapability(new MicrometerObservationCapability(observationRegistry));
         return apiClient;
     }
 

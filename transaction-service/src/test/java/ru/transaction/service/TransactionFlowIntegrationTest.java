@@ -29,11 +29,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -80,25 +83,25 @@ class TransactionFlowIntegrationTest {
         UUID walletUid = createWallet(userUid, "deposit");
         long transactionsBefore = transactionsRepository.count();
 
-        perform(post("/transactions/deposit/init"), depositJson(userUid, walletUid, "100.00"))
+        perform(userUid, post("/transactions/deposit/init"), depositJson(userUid, walletUid, "100.00"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fee").value(1.0))
                 .andExpect(jsonPath("$.totalAmount").value(101.0))
                 .andExpect(jsonPath("$.available").value(true));
         assertThat(transactionsRepository.count()).as("init не создаёт записей").isEqualTo(transactionsBefore);
 
-        UUID transactionId = confirm("deposit", depositJson(userUid, walletUid, "100.00"), "PENDING");
+        UUID transactionId = confirm(userUid, "deposit", depositJson(userUid, walletUid, "100.00"), "PENDING");
 
         JsonNode requested = awaitRequested("deposit-requested", transactionId);
         assertThat(requested.get("walletId").asText()).isEqualTo(walletUid.toString());
         assertThat(requested.get("amount").decimalValue()).isEqualByComparingTo("100.00");
         assertThat(requested.get("totalAmount").decimalValue()).isEqualByComparingTo("101.00");
-        assertThat(balance(walletUid)).as("до ответа провайдера баланс не меняется").isEqualByComparingTo("0.00");
+        assertThat(balance(userUid, walletUid)).as("до ответа провайдера баланс не меняется").isEqualByComparingTo("0.00");
 
         provider("deposit-completed", transactionId, "{\"transactionId\":\"%s\",\"status\":\"COMPLETED\",\"amount\":100.00}");
 
-        awaitStatus(transactionId, "COMPLETED");
-        assertThat(balance(walletUid)).isEqualByComparingTo("100.00");
+        awaitStatus(userUid, transactionId, "COMPLETED");
+        assertThat(balance(userUid, walletUid)).isEqualByComparingTo("100.00");
     }
 
     @Test
@@ -110,7 +113,7 @@ class TransactionFlowIntegrationTest {
         provider("deposit-completed", transactionId, "{\"transactionId\":\"%s\",\"status\":\"COMPLETED\",\"amount\":50.00}");
 
         await().during(Duration.ofSeconds(2)).atMost(Duration.ofSeconds(5))
-                .untilAsserted(() -> assertThat(balance(walletUid)).isEqualByComparingTo("50.00"));
+                .untilAsserted(() -> assertThat(balance(userUid, walletUid)).isEqualByComparingTo("50.00"));
     }
 
     @Test
@@ -119,23 +122,23 @@ class TransactionFlowIntegrationTest {
         UUID walletUid = createWallet(userUid, "withdrawal");
         deposit(userUid, walletUid, "200.00");
 
-        UUID failed = confirm("withdrawal", withdrawalJson(userUid, walletUid, "100.00"), "PENDING");
-        assertThat(balance(walletUid)).as("сумма и комиссия списаны сразу при confirm").isEqualByComparingTo("99.00");
+        UUID failed = confirm(userUid, "withdrawal", withdrawalJson(userUid, walletUid, "100.00"), "PENDING");
+        assertThat(balance(userUid, walletUid)).as("сумма и комиссия списаны сразу при confirm").isEqualByComparingTo("99.00");
         assertThat(awaitRequested("withdrawal-requested", failed).get("destination").asText())
                 .isEqualTo("Visa **** 1234");
         provider("withdrawal-failed", failed,
                 "{\"transactionId\":\"%s\",\"status\":\"FAILED\",\"failureReason\":\"INSUFFICIENT_FUNDS_EXTERNAL\"}");
-        awaitStatus(failed, "FAILED");
-        assertThat(balance(walletUid)).isEqualByComparingTo("200.00");
-        perform(get("/transactions/{id}/status", failed), null)
+        awaitStatus(userUid, failed, "FAILED");
+        assertThat(balance(userUid, walletUid)).isEqualByComparingTo("200.00");
+        perform(userUid, get("/transactions/{id}/status", failed), null)
                 .andExpect(jsonPath("$.failureReason").value("INSUFFICIENT_FUNDS_EXTERNAL"));
 
-        UUID completed = confirm("withdrawal", withdrawalJson(userUid, walletUid, "50.00"), "PENDING");
+        UUID completed = confirm(userUid, "withdrawal", withdrawalJson(userUid, walletUid, "50.00"), "PENDING");
         awaitRequested("withdrawal-requested", completed);
         // Статус в сообщении не указан - он определяется по топику withdrawal-completed.
         provider("withdrawal-completed", completed, "{\"transactionId\":\"%s\"}");
-        awaitStatus(completed, "COMPLETED");
-        assertThat(balance(walletUid)).isEqualByComparingTo("149.50");
+        awaitStatus(userUid, completed, "COMPLETED");
+        assertThat(balance(userUid, walletUid)).isEqualByComparingTo("149.50");
     }
 
     @Test
@@ -146,10 +149,59 @@ class TransactionFlowIntegrationTest {
         UUID target = createWallet(recipient, "target");
         deposit(sender, source, "100.00");
 
-        confirm("transfer", transferJson(sender, source, target, "40.00"), "COMPLETED");
+        confirm(sender, "transfer", transferJson(sender, source, target, "40.00"), "COMPLETED");
 
-        assertThat(balance(source)).isEqualByComparingTo("59.80");
-        assertThat(balance(target)).isEqualByComparingTo("40.00");
+        assertThat(balance(sender, source)).isEqualByComparingTo("59.80");
+        assertThat(balance(recipient, target)).isEqualByComparingTo("40.00");
+    }
+
+    /**
+     * Коммит прошёл, ответ потерян: повтор с тем же ключом возвращает ту же транзакцию без второго списания.
+     */
+    @Test
+    void retriedConfirmWithSameKeyDoesNotDebitTwice() throws Exception {
+        UUID userUid = UUID.randomUUID();
+        UUID walletUid = createWallet(userUid, "idempotent");
+        deposit(userUid, walletUid, "100.00");
+        UUID key = UUID.randomUUID();
+        String body = withdrawalJson(userUid, walletUid, "50.00");
+
+        UUID first = UUID.fromString(read(confirmRequest(userUid, "withdrawal", key, body)
+                .andExpect(status().isOk())).get("transactionId").asText());
+        UUID retry = UUID.fromString(read(confirmRequest(userUid, "withdrawal", key, body)
+                .andExpect(status().isOk())).get("transactionId").asText());
+
+        assertThat(retry).isEqualTo(first);
+        assertThat(balance(userUid, walletUid)).isEqualByComparingTo("49.50");
+        confirmRequest(userUid, "withdrawal", key, withdrawalJson(userUid, walletUid, "10.00"))
+                .andExpect(status().isUnprocessableEntity());
+        assertThat(balance(userUid, walletUid)).isEqualByComparingTo("49.50");
+    }
+
+    /**
+     * Повтор пришёл, пока первый запрос ещё выполняется: списание всё равно одно.
+     */
+    @Test
+    void concurrentConfirmsWithSameKeyDebitOnce() throws Exception {
+        UUID userUid = UUID.randomUUID();
+        UUID walletUid = createWallet(userUid, "concurrent");
+        deposit(userUid, walletUid, "100.00");
+        UUID key = UUID.randomUUID();
+        String body = withdrawalJson(userUid, walletUid, "10.00");
+
+        List<CompletableFuture<String>> requests = IntStream.range(0, 4)
+                .mapToObj(i -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return read(confirmRequest(userUid, "withdrawal", key, body).andExpect(status().isOk()))
+                                .get("transactionId").asText();
+                    } catch (Exception exception) {
+                        throw new IllegalStateException(exception);
+                    }
+                }))
+                .toList();
+
+        assertThat(requests.stream().map(CompletableFuture::join).distinct()).hasSize(1);
+        assertThat(balance(userUid, walletUid)).isEqualByComparingTo("89.90");
     }
 
     @Test
@@ -157,15 +209,15 @@ class TransactionFlowIntegrationTest {
         UUID userUid = UUID.randomUUID();
         UUID walletUid = createWallet(userUid, "errors");
 
-        perform(post("/transactions/deposit/init"), depositJson(userUid, walletUid, "0.001"))
+        perform(userUid, post("/transactions/deposit/init"), depositJson(userUid, walletUid, "0.001"))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
-        perform(post("/transactions/withdrawal/confirm"), withdrawalJson(userUid, walletUid, "10.00"))
+        confirmRequest(userUid, "withdrawal", UUID.randomUUID(), withdrawalJson(userUid, walletUid, "10.00"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value("Insufficient funds"));
-        perform(post("/wallets"), createWalletJson(userUid, USD_WALLET_TYPE, "errors"))
+        perform(userUid, post("/wallets"), createWalletJson(userUid, USD_WALLET_TYPE, "errors"))
                 .andExpect(status().isConflict());
-        perform(get("/transactions/{id}/status", UUID.randomUUID()), null)
+        perform(userUid, get("/transactions/{id}/status", UUID.randomUUID()), null)
                 .andExpect(status().isNotFound());
     }
 
@@ -173,11 +225,11 @@ class TransactionFlowIntegrationTest {
      * Пополнение, подтверждённое провайдером.
      */
     private UUID deposit(UUID userUid, UUID walletUid, String amount) throws Exception {
-        UUID transactionId = confirm("deposit", depositJson(userUid, walletUid, amount), "PENDING");
+        UUID transactionId = confirm(userUid, "deposit", depositJson(userUid, walletUid, amount), "PENDING");
         awaitRequested("deposit-requested", transactionId);
         provider("deposit-completed", transactionId,
                 "{\"transactionId\":\"%s\",\"status\":\"COMPLETED\",\"amount\":" + amount + "}");
-        awaitStatus(transactionId, "COMPLETED");
+        awaitStatus(userUid, transactionId, "COMPLETED");
         return transactionId;
     }
 
@@ -218,34 +270,43 @@ class TransactionFlowIntegrationTest {
     }
 
     private UUID createWallet(UUID userUid, String name) throws Exception {
-        JsonNode wallet = read(perform(post("/wallets"), createWalletJson(userUid, USD_WALLET_TYPE, name))
+        JsonNode wallet = read(perform(userUid, post("/wallets"), createWalletJson(userUid, USD_WALLET_TYPE, name))
                 .andExpect(status().isCreated()));
         return UUID.fromString(wallet.get("uid").asText());
     }
 
-    private UUID confirm(String type, String body, String expectedStatus) throws Exception {
-        JsonNode response = read(perform(post("/transactions/{type}/confirm", type), body)
+    private UUID confirm(UUID caller, String type, String body, String expectedStatus) throws Exception {
+        JsonNode response = read(confirmRequest(caller, type, UUID.randomUUID(), body)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(expectedStatus)));
         return UUID.fromString(response.get("transactionId").asText());
     }
 
-    private void awaitStatus(UUID transactionId, String expected) {
+    private ResultActions confirmRequest(UUID caller, String type, UUID idempotencyKey, String body) throws Exception {
+        return perform(caller, post("/transactions/{type}/confirm", type)
+                .header("Idempotency-Key", idempotencyKey.toString()), body);
+    }
+
+    private void awaitStatus(UUID caller, UUID transactionId, String expected) {
         await().atMost(ASYNC_TIMEOUT).untilAsserted(() ->
-                perform(get("/transactions/{id}/status", transactionId), null)
+                perform(caller, get("/transactions/{id}/status", transactionId), null)
                         .andExpect(jsonPath("$.status").value(expected)));
     }
 
-    private BigDecimal balance(UUID walletUid) throws Exception {
-        return read(perform(get("/wallets/{id}", walletUid), null).andExpect(status().isOk()))
+    private BigDecimal balance(UUID caller, UUID walletUid) throws Exception {
+        return read(perform(caller, get("/wallets/{id}", walletUid), null).andExpect(status().isOk()))
                 .get("balance").decimalValue();
     }
 
-    private ResultActions perform(MockHttpServletRequestBuilder request, String body) throws Exception {
+    /**
+     * Запрос от имени пользователя: JWT, который в рабочей схеме пересылает шлюз.
+     */
+    private ResultActions perform(UUID caller, MockHttpServletRequestBuilder request, String body) throws Exception {
         if (body != null) {
             request.contentType(MediaType.APPLICATION_JSON).content(body);
         }
-        return mockMvc.perform(request.accept(MediaType.APPLICATION_JSON, MediaType.APPLICATION_PROBLEM_JSON));
+        return mockMvc.perform(request.with(jwt().jwt(token -> token.subject(caller.toString())))
+                .accept(MediaType.APPLICATION_JSON, MediaType.APPLICATION_PROBLEM_JSON));
     }
 
     private JsonNode read(ResultActions result) throws Exception {

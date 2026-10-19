@@ -17,6 +17,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import ru.transaction.service.exception.BadRequestException;
 import ru.transaction.service.exception.ConflictException;
+import ru.transaction.service.exception.ForbiddenException;
+import ru.transaction.service.exception.IdempotencyKeyReusedException;
 import ru.transaction.service.exception.NotFoundException;
 import ru.transaction.service.exception.WalletAlreadyExistsException;
 import ru.transaction.service.generated.dto.ErrorResponse;
@@ -36,6 +38,12 @@ public class ApiExceptionHandler {
         return response(HttpStatus.BAD_REQUEST, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ErrorResponse> forbidden(ForbiddenException exception, HttpServletRequest request) {
+        log.warn("Forbidden: uri={}, error={}", request.getRequestURI(), exception.getMessage());
+        return response(HttpStatus.FORBIDDEN, exception.getMessage(), request);
+    }
+
     @ExceptionHandler({NotFoundException.class, NoResourceFoundException.class})
     public ResponseEntity<ErrorResponse> notFound(Exception exception, HttpServletRequest request) {
         return response(HttpStatus.NOT_FOUND, exception.getMessage(), request);
@@ -45,6 +53,13 @@ public class ApiExceptionHandler {
     public ResponseEntity<ErrorResponse> conflict(Exception exception, HttpServletRequest request) {
         log.warn("Conflict: uri={}, error={}", request.getRequestURI(), exception.getMessage());
         return response(HttpStatus.CONFLICT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(IdempotencyKeyReusedException.class)
+    public ResponseEntity<ErrorResponse> idempotencyKeyReused(IdempotencyKeyReusedException exception,
+                                                              HttpServletRequest request) {
+        log.warn("Idempotency key reused: uri={}, error={}", request.getRequestURI(), exception.getMessage());
+        return response(HttpStatus.UNPROCESSABLE_ENTITY, exception.getMessage(), request);
     }
 
     /**

@@ -34,7 +34,7 @@ public class TransactionsEntity {
     @UpdateTimestamp
     private Instant modifiedAt;
 
-    // Ключ шардирования: ShardingSphere запрещает менять его в UPDATE.
+    // Ключ шардирования
     @Column(name = "user_uid", nullable = false, updatable = false)
     private UUID userUid;
 
@@ -66,4 +66,10 @@ public class TransactionsEntity {
 
     @Column(name = "failure_reason", length = 256)
     private String failureReason;
+
+    @Column(name = "idempotency_key", updatable = false)
+    private UUID idempotencyKey;
+
+    @Column(name = "request_hash", length = 64, updatable = false)
+    private String requestHash;
 }

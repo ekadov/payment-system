@@ -202,9 +202,6 @@ services:
       POSTGRES_PASSWORD: postgres
     ports:
       - "5435:5432"
-    volumes:
-      - ./transaction-service/src/main/resources/migration/V1__init_transactions_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./transaction-service/src/main/resources/migration/V2__outbox_events.sql:/docker-entrypoint-initdb.d/02-outbox.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d transaction_service"]
       interval: 10s
@@ -221,9 +218,6 @@ services:
       POSTGRES_PASSWORD: postgres
     ports:
       - "5436:5432"
-    volumes:
-      - ./transaction-service/src/main/resources/migration/V1__init_transactions_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./transaction-service/src/main/resources/migration/V2__outbox_events.sql:/docker-entrypoint-initdb.d/02-outbox.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d transaction_service"]
       interval: 10s
@@ -258,11 +252,12 @@ services:
       context: .
       dockerfile: transaction-service/Dockerfile
     container_name: transaction-service
-    ports:
-      - "8084:8084"
+    expose:
+      - "8084"
     environment:
       SPRING_PROFILES_ACTIVE: sharding,loki
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/my-realm
       OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318/v1/traces
       LOKI_URL: http://loki:3100/loki/api/v1/push
     depends_on:
@@ -273,6 +268,8 @@ services:
       transaction-postgres-1:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
       tempo:
         condition: service_healthy

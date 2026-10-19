@@ -18,6 +18,11 @@ spring:
       hibernate:
         format_sql: true
       org.hibernate.envers.default_schema: transaction
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/my-realm}
   flyway:
     enabled: true
     schemas: transaction
@@ -60,6 +65,7 @@ management:
       application: ${spring.application.name}
     distribution:
       percentiles-histogram:
+        http.server.requests: true
         transactions.operation.duration: true
         transactions.finalize.latency: true
   prometheus:
@@ -88,6 +94,9 @@ logging:
     url: ${LOKI_URL:http://localhost:3100/loki/api/v1/push}
 
 transaction:
+  security:
+    # Принимаются только токены, выпущенные Keycloak для клиента шлюза (claim azp).
+    authorized-party: ${KEYCLOAK_CLIENT_ID:my-client-id}
   kafka:
     topics:
       deposit-requested: deposit-requested

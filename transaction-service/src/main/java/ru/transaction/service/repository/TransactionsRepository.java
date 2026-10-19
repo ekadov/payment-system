@@ -16,4 +16,6 @@ public interface TransactionsRepository extends JpaRepository<TransactionsEntity
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select transaction from TransactionsEntity transaction where transaction.uid = :uid")
     Optional<TransactionsEntity> findByUidForUpdate(UUID uid);
+
+    Optional<TransactionsEntity> findByUserUidAndIdempotencyKey(UUID userUid, UUID idempotencyKey);
 }

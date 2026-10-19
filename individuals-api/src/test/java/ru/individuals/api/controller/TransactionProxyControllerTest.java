@@ -106,7 +106,24 @@ class TransactionProxyControllerTest {
     }
 
     @Test
-    void confirmShouldConvertLowercaseTypeAndProxyRequest() {
+    void confirmShouldConvertLowercaseTypeAndProxyRequestWithClientIdempotencyKey() {
+        UUID idempotencyKey = UUID.randomUUID();
+        webTestClient.mutateWith(mockJwt().jwt(jwt -> jwt.subject(USER.toString())))
+                .post()
+                .uri("/v1/transactions/deposit/confirm")
+                .header("Idempotency-Key", idempotencyKey.toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(new TransactionRequest().userUid(USER).walletUid(UUID.randomUUID())
+                        .amount(new BigDecimal("100")).currency("USD").paymentMethodId(1L))
+                .exchange()
+                .expectStatus().isOk();
+
+        verify(transactionsApi).confirmTransaction(eq(TransactionType.DEPOSIT), eq(idempotencyKey),
+                any(TransactionRequest.class));
+    }
+
+    @Test
+    void confirmWithoutIdempotencyKeyShouldBeRejectedBeforeProxying() {
         webTestClient.mutateWith(mockJwt().jwt(jwt -> jwt.subject(USER.toString())))
                 .post()
                 .uri("/v1/transactions/deposit/confirm")
@@ -114,9 +131,9 @@ class TransactionProxyControllerTest {
                 .bodyValue(new TransactionRequest().userUid(USER).walletUid(UUID.randomUUID())
                         .amount(new BigDecimal("100")).currency("USD").paymentMethodId(1L))
                 .exchange()
-                .expectStatus().isOk();
+                .expectStatus().isBadRequest();
 
-        verify(transactionsApi).confirmTransaction(eq(TransactionType.DEPOSIT), any(TransactionRequest.class));
+        verifyNoInteractions(transactionsApi);
     }
 
     @Test

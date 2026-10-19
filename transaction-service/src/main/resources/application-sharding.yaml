@@ -5,6 +5,5 @@ spring:
   jpa:
     properties:
       hibernate.default_schema: transaction
-  # Схема на шардах создаётся init-скриптом PostgreSQL (docker-compose.yaml):
   flyway:
     enabled: false

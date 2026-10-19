@@ -217,10 +217,19 @@ paths:
   /transactions/{type}/confirm:
     post:
       summary: Подтверждение операции
+      description: >
+        Клиент генерирует ключ идемпотентности один раз на операцию и повторяет его при ретраях:
+        повтор возвращает уже созданную транзакцию без повторного списания.
       security:
         - bearerAuth: [ ]
       parameters:
         - *transactionTypeParam
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -240,6 +249,8 @@ paths:
         '403': *forbidden
         '409':
           description: Недостаточно средств или кошелёк неактивен
+        '422':
+          description: Ключ идемпотентности уже использован для другого запроса
 
   /transactions/{transactionId}/status:
     get:

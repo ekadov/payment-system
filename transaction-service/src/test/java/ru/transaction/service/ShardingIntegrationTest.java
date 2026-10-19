@@ -1,5 +1,6 @@
 package ru.transaction.service;
 
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -44,11 +45,7 @@ import static ru.transaction.service.testsupport.TestData.USD_WALLET_TYPE;
 @DirtiesContext
 class ShardingIntegrationTest {
 
-    private static final String[] SCHEMA_SCRIPTS = {
-            "migration/V1__init_transactions_schema.sql",
-            "migration/V2__outbox_events.sql"
-    };
-
+    // Схему на пустых шардах создаёт ShardMigrator при старте контекста.
     @Container
     static final PostgreSQLContainer SHARD_0 = shard();
     @Container
@@ -66,12 +63,17 @@ class ShardingIntegrationTest {
         registry.add("spring.kafka.bootstrap-servers", KafkaTestContainer.KAFKA::getBootstrapServers);
     }
 
+    @AfterAll
+    static void clearShardProperties() {
+        System.clearProperty("transaction.shard0.url");
+        System.clearProperty("transaction.shard1.url");
+    }
+
     private static PostgreSQLContainer shard() {
         return new PostgreSQLContainer("postgres:17")
                 .withDatabaseName("transaction_service")
                 .withUsername("postgres")
                 .withPassword("postgres")
-                .withInitScripts(SCHEMA_SCRIPTS)
                 .withCommand("postgres", "-c", "max_prepared_transactions=100");
     }
 
@@ -99,7 +101,7 @@ class ShardingIntegrationTest {
         WalletResponse target = walletService.createWallet(new CreateWalletRequest(recipient, USD_WALLET_TYPE, "dst"));
         setBalance(source.getUid(), new BigDecimal("100.00"));
 
-        var response = transactionService.confirm(TransactionType.TRANSFER,
+        var response = transactionService.confirm(TransactionType.TRANSFER, UUID.randomUUID(),
                 new TransactionRequest(sender, source.getUid(), new BigDecimal("40.00"))
                         .targetWalletUid(target.getUid()));
 
@@ -117,7 +119,7 @@ class ShardingIntegrationTest {
         WalletResponse target = walletService.createWallet(new CreateWalletRequest(recipient, USD_WALLET_TYPE, "dst"));
         setBalance(source.getUid(), new BigDecimal("10.00"));
 
-        assertThatThrownBy(() -> transactionService.confirm(TransactionType.TRANSFER,
+        assertThatThrownBy(() -> transactionService.confirm(TransactionType.TRANSFER, UUID.randomUUID(),
                 new TransactionRequest(sender, source.getUid(), new BigDecimal("40.00"))
                         .targetWalletUid(target.getUid())))
                 .isInstanceOf(ConflictException.class);
@@ -143,7 +145,7 @@ class ShardingIntegrationTest {
 
         failCommitOnWalletUpdate(targetShard, target.getUid());
         try {
-            assertThatThrownBy(() -> transactionService.confirm(TransactionType.TRANSFER,
+            assertThatThrownBy(() -> transactionService.confirm(TransactionType.TRANSFER, UUID.randomUUID(),
                     new TransactionRequest(sender, source.getUid(), new BigDecimal("40.00"))
                             .targetWalletUid(target.getUid())))
                     .isInstanceOf(RuntimeException.class);
@@ -165,7 +167,7 @@ class ShardingIntegrationTest {
         WalletResponse wallet = walletService.createWallet(new CreateWalletRequest(user, USD_WALLET_TYPE, "main"));
         setBalance(wallet.getUid(), new BigDecimal("100.00"));
 
-        UUID transactionId = transactionService.confirm(TransactionType.WITHDRAWAL,
+        UUID transactionId = transactionService.confirm(TransactionType.WITHDRAWAL, UUID.randomUUID(),
                         new TransactionRequest(user, wallet.getUid(), new BigDecimal("10.00"))
                                 .currency("USD").paymentMethodId(1L))
                 .getTransactionId();

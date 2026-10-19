@@ -17,9 +17,11 @@ import java.util.UUID;
 public class WalletController implements WalletsApiDelegate {
 
     private final WalletService walletService;
+    private final CurrentUser currentUser;
 
     @Override
     public ResponseEntity<WalletResponse> createWallet(CreateWalletRequest createWalletRequest) {
+        currentUser.requireOwner(createWalletRequest.getUserUid());
         var response = walletService.createWallet(createWalletRequest);
         var location = ServletUriComponentsBuilder.fromCurrentRequest()
                 .path("/{id}")
@@ -30,11 +32,14 @@ public class WalletController implements WalletsApiDelegate {
 
     @Override
     public ResponseEntity<List<WalletResponse>> getUserWallets(UUID userUid) {
+        currentUser.requireOwner(userUid);
         return ResponseEntity.ok(walletService.getByUserUid(userUid));
     }
 
     @Override
     public ResponseEntity<WalletResponse> getWallet(UUID walletUid) {
-        return ResponseEntity.ok(walletService.getByUid(walletUid));
+        WalletResponse wallet = walletService.getByUid(walletUid);
+        currentUser.requireOwner(wallet.getUserUid());
+        return ResponseEntity.ok(wallet);
     }
 }

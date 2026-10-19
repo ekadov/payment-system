@@ -81,6 +81,7 @@ class TransactionGatewayIntegrationTest extends IntegrationTestContainers {
         assertThat(forwarded).isNotNull();
         assertThat(forwarded.getMethod()).isEqualTo("POST");
         assertThat(forwarded.getPath()).isEqualTo("/api/v1/wallets");
+        assertThat(forwarded.getHeader("Authorization")).isEqualTo("Bearer " + accessToken);
         JsonNode body = objectMapper.readTree(forwarded.getBody().readUtf8());
         assertThat(body.get("userUid").asText()).isEqualTo(userUid);
         assertThat(body.get("name").asText()).isEqualTo("main");

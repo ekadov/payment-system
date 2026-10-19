@@ -14,6 +14,7 @@ import ru.transaction.service.entity.WalletEntity;
 import ru.transaction.service.entity.WalletTypesEntity;
 import ru.transaction.service.exception.BadRequestException;
 import ru.transaction.service.exception.ConflictException;
+import ru.transaction.service.exception.IdempotencyKeyReusedException;
 import ru.transaction.service.generated.dto.TransactionRequest;
 import ru.transaction.service.generated.dto.TransactionType;
 import ru.transaction.service.messaging.event.DepositRequested;
@@ -89,7 +90,7 @@ class TransactionServiceTest {
         when(walletService.getWalletType(wallet)).thenReturn(walletType("USD"));
         stubSave();
 
-        var response = transactionService.confirm(TransactionType.DEPOSIT, deposit("100.00"));
+        var response = transactionService.confirm(TransactionType.DEPOSIT, UUID.randomUUID(), deposit("100.00"));
 
         assertThat(response.getStatus().name()).isEqualTo("PENDING");
         assertThat(wallet.getBalance()).isEqualByComparingTo("5.00");
@@ -109,7 +110,7 @@ class TransactionServiceTest {
         when(walletService.getWalletType(wallet)).thenReturn(walletType("USD"));
         stubSave();
 
-        var response = transactionService.confirm(TransactionType.WITHDRAWAL, withdrawal("50.00"));
+        var response = transactionService.confirm(TransactionType.WITHDRAWAL, UUID.randomUUID(), withdrawal("50.00"));
 
         assertThat(response.getStatus().name()).isEqualTo("PENDING");
         assertThat(wallet.getBalance()).isEqualByComparingTo("49.50");
@@ -125,11 +126,61 @@ class TransactionServiceTest {
         when(walletService.getWalletEntityForUpdate(walletUid)).thenReturn(wallet);
         when(walletService.getWalletType(wallet)).thenReturn(walletType("USD"));
 
-        assertThatThrownBy(() -> transactionService.confirm(TransactionType.WITHDRAWAL, withdrawal("10.00")))
+        assertThatThrownBy(() -> transactionService.confirm(TransactionType.WITHDRAWAL, UUID.randomUUID(), withdrawal("10.00")))
                 .isInstanceOf(ConflictException.class);
         assertThat(wallet.getBalance()).isEqualByComparingTo("10.00");
         verify(transactionsRepository, never()).saveAndFlush(any());
         verifyNoInteractions(outboxService);
+    }
+
+    /**
+     * Коммит прошёл, ответ потерян, клиент повторил confirm с тем же ключом.
+     */
+    @Test
+    void repeatedConfirmWithSameKeyReturnsPreviousTransactionWithoutSecondDebit() {
+        WalletEntity wallet = wallet(walletUid, userUid, "100.00");
+        when(walletService.getWalletEntityForUpdate(walletUid)).thenReturn(wallet);
+        when(walletService.getWalletType(wallet)).thenReturn(walletType("USD"));
+        stubSave();
+        UUID key = UUID.randomUUID();
+        var first = transactionService.confirm(TransactionType.WITHDRAWAL, key, withdrawal("50.00"));
+        ArgumentCaptor<TransactionsEntity> saved = ArgumentCaptor.forClass(TransactionsEntity.class);
+        verify(transactionsRepository).saveAndFlush(saved.capture());
+        when(transactionsRepository.findByUserUidAndIdempotencyKey(userUid, key)).thenReturn(Optional.of(saved.getValue()));
+
+        var retry = transactionService.confirm(TransactionType.WITHDRAWAL, key, withdrawal("50.00"));
+
+        assertThat(retry.getTransactionId()).isEqualTo(first.getTransactionId());
+        assertThat(wallet.getBalance()).as("списание только одно").isEqualByComparingTo("49.50");
+        assertThat(saved.getValue().getIdempotencyKey()).isEqualTo(key);
+        verify(transactionsRepository, times(1)).saveAndFlush(any());
+        verify(outboxService, times(1)).enqueue(any(), any(), any(), any());
+    }
+
+    @Test
+    void sameKeyWithDifferentRequestIsRejected() {
+        WalletEntity wallet = wallet(walletUid, userUid, "100.00");
+        when(walletService.getWalletEntityForUpdate(walletUid)).thenReturn(wallet);
+        when(walletService.getWalletType(wallet)).thenReturn(walletType("USD"));
+        stubSave();
+        UUID key = UUID.randomUUID();
+        transactionService.confirm(TransactionType.WITHDRAWAL, key, withdrawal("50.00"));
+        ArgumentCaptor<TransactionsEntity> saved = ArgumentCaptor.forClass(TransactionsEntity.class);
+        verify(transactionsRepository).saveAndFlush(saved.capture());
+        when(transactionsRepository.findByUserUidAndIdempotencyKey(userUid, key)).thenReturn(Optional.of(saved.getValue()));
+
+        assertThatThrownBy(() -> transactionService.confirm(TransactionType.WITHDRAWAL, key, withdrawal("60.00")))
+                .isInstanceOf(IdempotencyKeyReusedException.class);
+        assertThatThrownBy(() -> transactionService.confirm(TransactionType.DEPOSIT, key, deposit("50.00")))
+                .isInstanceOf(IdempotencyKeyReusedException.class);
+        assertThat(wallet.getBalance()).isEqualByComparingTo("49.50");
+    }
+
+    @Test
+    void confirmWithoutKeyIsRejected() {
+        assertThatThrownBy(() -> transactionService.confirm(TransactionType.WITHDRAWAL, null, withdrawal("10.00")))
+                .isInstanceOf(BadRequestException.class);
+        verifyNoInteractions(transactionsRepository, walletService, outboxService);
     }
 
     @Test
@@ -143,7 +194,7 @@ class TransactionServiceTest {
         when(walletService.getWalletType(target)).thenReturn(walletType("USD"));
         stubSave();
 
-        var response = transactionService.confirm(TransactionType.TRANSFER, transfer(targetUid, "20.00"));
+        var response = transactionService.confirm(TransactionType.TRANSFER, UUID.randomUUID(), transfer(targetUid, "20.00"));
 
         assertThat(response.getStatus().name()).isEqualTo("COMPLETED");
         assertThat(source.getBalance()).isEqualByComparingTo("79.90");
@@ -161,7 +212,7 @@ class TransactionServiceTest {
         when(walletService.getWalletType(source)).thenReturn(walletType("USD"));
         when(walletService.getWalletType(target)).thenReturn(walletType("EUR"));
 
-        assertThatThrownBy(() -> transactionService.confirm(TransactionType.TRANSFER, transfer(targetUid, "20.00")))
+        assertThatThrownBy(() -> transactionService.confirm(TransactionType.TRANSFER, UUID.randomUUID(), transfer(targetUid, "20.00")))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("currencies");
         assertThat(source.getBalance()).isEqualByComparingTo("100.00");

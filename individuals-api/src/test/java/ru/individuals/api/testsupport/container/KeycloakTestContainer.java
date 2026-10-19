@@ -24,8 +24,8 @@ final class KeycloakTestContainer {
                 .withEnv("KC_BOOTSTRAP_ADMIN_USERNAME", "admin")
                 .withEnv("KC_BOOTSTRAP_ADMIN_PASSWORD", "admin")
                 .withCopyFileToContainer(
-                        MountableFile.forClasspathResource("realm-config.json"),
-                        "/opt/keycloak/data/import/realm-config.json")
+                        MountableFile.forClasspathResource("keycloak/test-realm.json"),
+                        "/opt/keycloak/data/import/" + REALM + "-realm.json")
                 .withCommand("start-dev", "--import-realm")
                 .withExposedPorts(HTTP_PORT)
                 .waitingFor(Wait.forHttp("/realms/" + REALM + "/.well-known/openid-configuration")

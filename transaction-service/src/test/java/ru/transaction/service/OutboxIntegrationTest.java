@@ -65,7 +65,7 @@ class OutboxIntegrationTest {
                 .createWallet(new CreateWalletRequest(userUid, USD_WALLET_TYPE, "main")).getUid();
         context.getBean(JdbcTemplate.class)
                 .update("update transaction.wallets set balance = 100.00 where uid = ?", walletUid);
-        return context.getBean(TransactionService.class).confirm(TransactionType.WITHDRAWAL,
+        return context.getBean(TransactionService.class).confirm(TransactionType.WITHDRAWAL, UUID.randomUUID(),
                         new TransactionRequest(userUid, walletUid, new BigDecimal("10.00"))
                                 .currency("USD").paymentMethodId(1L))
                 .getTransactionId();

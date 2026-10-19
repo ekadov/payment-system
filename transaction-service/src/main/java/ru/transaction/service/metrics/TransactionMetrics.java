@@ -6,6 +6,7 @@ import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Component;
 import ru.transaction.service.exception.BadRequestException;
 import ru.transaction.service.exception.ConflictException;
+import ru.transaction.service.exception.IdempotencyKeyReusedException;
 import ru.transaction.service.exception.NotFoundException;
 
 import java.time.Duration;
@@ -20,8 +21,8 @@ public class TransactionMetrics {
     private final MeterRegistry meterRegistry;
 
     /**
-     * Измеряет длительность операции вместе с коммитом транзакции и считает исход:
-     * success, rejected (бизнес-ошибка 4xx) или error.
+     * Измеряет длительность операции вместе с коммитом транзакции и вычисляет результат:
+     * success, rejected (4xx) или error.
      */
     public <T> T record(String operation, Enum<?> type, Supplier<T> action) {
         Timer.Sample sample = Timer.start(meterRegistry);
@@ -30,7 +31,7 @@ public class TransactionMetrics {
             T result = action.get();
             outcome = "success";
             return result;
-        } catch (BadRequestException | NotFoundException | ConflictException exception) {
+        } catch (BadRequestException | NotFoundException | ConflictException | IdempotencyKeyReusedException exception) {
             outcome = "rejected";
             throw exception;
         } finally {

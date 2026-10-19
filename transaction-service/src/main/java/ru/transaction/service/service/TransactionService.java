@@ -13,6 +13,7 @@ import ru.transaction.service.entity.*;
 import ru.transaction.service.entity.WalletStatus;
 import ru.transaction.service.exception.BadRequestException;
 import ru.transaction.service.exception.ConflictException;
+import ru.transaction.service.exception.IdempotencyKeyReusedException;
 import ru.transaction.service.exception.NotFoundException;
 import ru.transaction.service.generated.dto.*;
 import ru.transaction.service.messaging.event.DepositRequested;
@@ -22,9 +23,13 @@ import ru.transaction.service.repository.TransactionsRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,7 +53,7 @@ public class TransactionService {
 
     @Transactional(readOnly = true)
     public TransactionInitResponse init(TransactionType type, TransactionRequest request) {
-        TransactionCommand command = fromRequest(type, request);
+        TransactionCommand command = fromRequest(type, request, null);
         WalletEntity source = requireUsableSource(command, false);
         if (type == TransactionType.TRANSFER) {
             requireUsableTarget(command, source);
@@ -64,8 +69,15 @@ public class TransactionService {
     }
 
     @Transactional
-    public TransactionConfirmResponse confirm(TransactionType type, TransactionRequest request) {
-        TransactionCommand command = fromRequest(type, request);
+    public TransactionConfirmResponse confirm(TransactionType type, UUID idempotencyKey, TransactionRequest request) {
+        if (idempotencyKey == null) {
+            throw new BadRequestException("Idempotency-Key is required");
+        }
+        TransactionCommand command = fromRequest(type, request, idempotencyKey);
+        Optional<TransactionsEntity> previous = findPrevious(type, command);
+        if (previous.isPresent()) {
+            return toConfirmResponse(previous.get());
+        }
         TransactionsEntity transaction = switch (type) {
             case DEPOSIT -> confirmDeposit(command);
             case WITHDRAWAL -> confirmWithdrawal(command);
@@ -75,6 +87,15 @@ public class TransactionService {
         log.info("Transaction confirmed: transactionId={}, type={}, status={}, amount={}, fee={}",
                 transaction.getUid(), type, transaction.getStatus(), transaction.getAmount(), transaction.getFee());
         return toConfirmResponse(transaction);
+    }
+
+    /**
+     * Результат ранее подтверждённой операции с тем же ключом, если он есть.
+     */
+    @Transactional(readOnly = true)
+    public Optional<TransactionConfirmResponse> replay(TransactionType type, UUID idempotencyKey,
+                                                      TransactionRequest request) {
+        return findPrevious(type, fromRequest(type, request, idempotencyKey)).map(this::toConfirmResponse);
     }
 
     @Transactional(readOnly = true)
@@ -241,8 +262,24 @@ public class TransactionService {
                 .setStatus(status.name())
                 .setComment(command.comment())
                 .setPaymentMethodId(command.paymentMethodId())
-                .setFee(fee);
+                .setFee(fee)
+                .setIdempotencyKey(command.idempotencyKey())
+                .setRequestHash(command.requestHash(type));
         return transactionsRepository.saveAndFlush(entity);
+    }
+
+    private Optional<TransactionsEntity> findPrevious(TransactionType type, TransactionCommand command) {
+        Optional<TransactionsEntity> previous = transactionsRepository
+                .findByUserUidAndIdempotencyKey(command.userUid(), command.idempotencyKey());
+        previous.ifPresent(transaction -> {
+            if (!command.requestHash(type).equals(transaction.getRequestHash())) {
+                throw new IdempotencyKeyReusedException(
+                        "Idempotency-Key %s was already used for another request".formatted(command.idempotencyKey()));
+            }
+            log.info("Idempotent replay: transactionId={}, idempotencyKey={}",
+                    transaction.getUid(), command.idempotencyKey());
+        });
+        return previous;
     }
 
     private WalletEntity requireUsableSource(TransactionCommand command, boolean lock) {
@@ -315,7 +352,7 @@ public class TransactionService {
     }
 
     /**
-     * Возвращает PENDING-транзакцию под блокировкой или пусто, если она уже финализирована
+     * Возвращает PENDING-транзакцию под блокировкой или empty, если она уже финализирована
      * (повторная доставка сообщения).
      */
     private Optional<TransactionsEntity> lockPendingTransaction(UUID transactionId, PaymentTypeEntity expectedType) {
@@ -366,7 +403,7 @@ public class TransactionService {
         return instant == null ? OffsetDateTime.now(ZoneOffset.UTC) : instant.atOffset(ZoneOffset.UTC);
     }
 
-    private TransactionCommand fromRequest(TransactionType type, TransactionRequest request) {
+    private TransactionCommand fromRequest(TransactionType type, TransactionRequest request, UUID idempotencyKey) {
         if (request.getUserUid() == null || request.getWalletUid() == null) {
             throw new BadRequestException("userUid and walletUid are required");
         }
@@ -383,7 +420,7 @@ public class TransactionService {
         return new TransactionCommand(request.getUserUid(), request.getWalletUid(),
                 type == TransactionType.TRANSFER ? request.getTargetWalletUid() : null,
                 normalizeAmount(request.getAmount()), request.getCurrency(), request.getPaymentMethodId(),
-                request.getDestination(), request.getComment());
+                request.getDestination(), request.getComment(), idempotencyKey);
     }
 
     private BigDecimal normalizeAmount(BigDecimal amount) {
@@ -401,6 +438,27 @@ public class TransactionService {
     }
 
     private record TransactionCommand(UUID userUid, UUID walletUid, UUID targetWalletUid, BigDecimal amount,
-                                      String currency, Long paymentMethodId, String destination, String comment) {
+                                      String currency, Long paymentMethodId, String destination, String comment,
+                                      UUID idempotencyKey) {
+
+        /**
+         * Hash запроса: ключ нельзя переиспользовать для операции с другими параметрами.
+         * Поля кодируются с длиной, чтобы разные наборы значений не давали одинаковую строку.
+         */
+        String requestHash(TransactionType type) {
+            StringBuilder canonical = new StringBuilder();
+            for (Object field : new Object[]{type, userUid, walletUid, targetWalletUid, amount.toPlainString(),
+                    currency == null ? null : currency.toUpperCase(Locale.ROOT), paymentMethodId, destination, comment}) {
+                String value = field == null ? "" : field.toString();
+                canonical.append(field == null ? -1 : value.length()).append(':').append(value).append(';');
+            }
+            try {
+                byte[] digest = MessageDigest.getInstance("SHA-256")
+                        .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+                return HexFormat.of().formatHex(digest);
+            } catch (NoSuchAlgorithmException exception) {
+                throw new IllegalStateException(exception);
+            }
+        }
     }
 }

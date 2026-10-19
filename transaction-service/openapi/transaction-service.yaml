@@ -105,8 +105,12 @@ paths:
       tags: [transactions]
       operationId: confirmTransaction
       summary: Подтверждение и запуск транзакции
+      description: >
+        Идемпотентно по заголовку Idempotency-Key: повтор с тем же ключом и тем же телом запроса
+        возвращает уже созданную транзакцию без повторного списания.
       parameters:
         - $ref: '#/components/parameters/TransactionType'
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -126,6 +130,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
 
   /transactions/{transactionId}/status:
     get:
@@ -230,6 +236,14 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/TransactionType'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Ключ, который клиент генерирует один раз на операцию и повторяет при ретраях.
+      schema:
+        type: string
+        format: uuid
 
   responses:
     BadRequest:
@@ -246,6 +260,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     Conflict:
       description: Операция невозможна в текущем состоянии
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    IdempotencyKeyReused:
+      description: Ключ идемпотентности уже использован для другого запроса
       content:
         application/problem+json:
           schema:
