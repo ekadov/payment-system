@@ -35,3 +35,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Local ###
+.gradle-home2/
+.gradle-local/
+module.txt
+# Журнал XA-транзакций Atomikos
+logs/

@@ -1,0 +1,168 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "ru.personservice",
+    "module": "person-service-client",
+    "version": "0.0.1-SNAPSHOT",
+    "attributes": {
+      "org.gradle.status": "integration"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "9.0.0"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 21,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "dependencies": [
+        {
+          "group": "org.springframework",
+          "module": "spring-web",
+          "version": {
+            "requires": "6.2.11"
+          }
+        },
+        {
+          "group": "org.springframework",
+          "module": "spring-context",
+          "version": {
+            "requires": "6.2.11"
+          }
+        },
+        {
+          "group": "com.fasterxml.jackson.core",
+          "module": "jackson-annotations",
+          "version": {
+            "requires": "2.18.2"
+          }
+        },
+        {
+          "group": "com.fasterxml.jackson.datatype",
+          "module": "jackson-datatype-jsr310",
+          "version": {
+            "requires": "2.18.2"
+          }
+        },
+        {
+          "group": "jakarta.validation",
+          "module": "jakarta.validation-api",
+          "version": {
+            "requires": "3.1.1"
+          }
+        },
+        {
+          "group": "jakarta.annotation",
+          "module": "jakarta.annotation-api",
+          "version": {
+            "requires": "3.0.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "person-service-client-0.0.1-SNAPSHOT.jar",
+          "url": "person-service-client-0.0.1-SNAPSHOT.jar",
+          "size": 20566,
+          "sha512": "3a510a393cee7b371cca8ac4f18c82ea8f4179a6e544b3cfc71619aadfa89b3d191c64cf71c05c0f2aea438659e13d6674cbb788eddfa214c586371a81bf99f5",
+          "sha256": "6c43c4697547a5a83127468eb0c9545340ba93b938b79ea1539e8f7fde67279b",
+          "sha1": "3626c89809c72f128755a2711f50c611a5c3fd26",
+          "md5": "d3403fece977bec652f46dce3bd2e8c5"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 21,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "org.springframework",
+          "module": "spring-web",
+          "version": {
+            "requires": "6.2.11"
+          }
+        },
+        {
+          "group": "org.springframework",
+          "module": "spring-context",
+          "version": {
+            "requires": "6.2.11"
+          }
+        },
+        {
+          "group": "com.fasterxml.jackson.core",
+          "module": "jackson-annotations",
+          "version": {
+            "requires": "2.18.2"
+          }
+        },
+        {
+          "group": "com.fasterxml.jackson.datatype",
+          "module": "jackson-datatype-jsr310",
+          "version": {
+            "requires": "2.18.2"
+          }
+        },
+        {
+          "group": "jakarta.validation",
+          "module": "jakarta.validation-api",
+          "version": {
+            "requires": "3.1.1"
+          }
+        },
+        {
+          "group": "jakarta.annotation",
+          "module": "jakarta.annotation-api",
+          "version": {
+            "requires": "3.0.0"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "person-service-client-0.0.1-SNAPSHOT.jar",
+          "url": "person-service-client-0.0.1-SNAPSHOT.jar",
+          "size": 20566,
+          "sha512": "3a510a393cee7b371cca8ac4f18c82ea8f4179a6e544b3cfc71619aadfa89b3d191c64cf71c05c0f2aea438659e13d6674cbb788eddfa214c586371a81bf99f5",
+          "sha256": "6c43c4697547a5a83127468eb0c9545340ba93b938b79ea1539e8f7fde67279b",
+          "sha1": "3626c89809c72f128755a2711f50c611a5c3fd26",
+          "md5": "d3403fece977bec652f46dce3bd2e8c5"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "person-service-client-0.0.1-SNAPSHOT-sources.jar",
+          "url": "person-service-client-0.0.1-SNAPSHOT-sources.jar",
+          "size": 15475,
+          "sha512": "35de1371322e99e717eb59c8419645f18973345e6fd305cc39bcc62fda49707042b19e37fba815c10477fa2effe760e02f2f3d85b368ec44b9959b80c308028c",
+          "sha256": "c0ebf46da3e9b1403c1607848d4ebb2ec4267a16ab0a579daf0ff42d71d1faba",
+          "sha1": "8f7a743d3747d3811d7b11251d096a524eefd980",
+          "md5": "87233698932a2f2730a711660bb12948"
+        }
+      ]
+    }
+  ]
+}

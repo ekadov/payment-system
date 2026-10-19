@@ -1,0 +1,490 @@
+openapi: 3.0.3
+info:
+  title: Transaction Service API
+  description: API кошельков и финансовых транзакций.
+  version: 1.1.1
+servers:
+  - url: http://localhost:8084/api/v1
+    description: Local
+
+tags:
+  - name: wallets
+    description: Операции с кошельками
+  - name: transactions
+    description: Инициализация, подтверждение и поиск транзакций
+
+paths:
+  /wallets:
+    post:
+      tags: [wallets]
+      operationId: createWallet
+      summary: Создание кошелька
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWalletRequest'
+      responses:
+        '201':
+          description: Кошелёк создан
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /wallets/{walletUid}:
+    get:
+      tags: [wallets]
+      operationId: getWallet
+      summary: Получение кошелька
+      parameters:
+        - $ref: '#/components/parameters/WalletUid'
+      responses:
+        '200':
+          description: Данные кошелька
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /wallets/user/{userUid}:
+    get:
+      tags: [wallets]
+      operationId: getUserWallets
+      summary: Получение кошельков пользователя
+      parameters:
+        - $ref: '#/components/parameters/UserUid'
+      responses:
+        '200':
+          description: Список кошельков
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WalletResponse'
+
+  /transactions/{type}/init:
+    post:
+      tags: [transactions]
+      operationId: initTransaction
+      summary: Расчёт условий транзакции без создания записи
+      parameters:
+        - $ref: '#/components/parameters/TransactionType'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionRequest'
+      responses:
+        '200':
+          description: Рассчитанные условия операции
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionInitResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /transactions/{type}/confirm:
+    post:
+      tags: [transactions]
+      operationId: confirmTransaction
+      summary: Подтверждение и запуск транзакции
+      description: >
+        Идемпотентно по заголовку Idempotency-Key: повтор с тем же ключом и тем же телом запроса
+        возвращает уже созданную транзакцию без повторного списания.
+      parameters:
+        - $ref: '#/components/parameters/TransactionType'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionRequest'
+      responses:
+        '200':
+          description: Транзакция принята
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionConfirmResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+
+  /transactions/{transactionId}/status:
+    get:
+      tags: [transactions]
+      operationId: getTransactionStatus
+      summary: Получение статуса транзакции
+      parameters:
+        - $ref: '#/components/parameters/TransactionId'
+      responses:
+        '200':
+          description: Статус транзакции
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionStatusResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /transactions:
+    get:
+      tags: [transactions]
+      operationId: findTransactions
+      summary: Поиск транзакций с пагинацией
+      parameters:
+        - name: userUid
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: walletUid
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/TransactionType'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/TransactionStatus'
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Страница транзакций
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionPageResponse'
+
+components:
+  parameters:
+    UserUid:
+      name: userUid
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    WalletUid:
+      name: walletUid
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TransactionId:
+      name: transactionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TransactionType:
+      name: type
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/TransactionType'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Ключ, который клиент генерирует один раз на операцию и повторяет при ретраях.
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Ошибка валидации запроса
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Операция невозможна в текущем состоянии
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    IdempotencyKeyReused:
+      description: Ключ идемпотентности уже использован для другого запроса
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    TransactionType:
+      type: string
+      enum: [deposit, withdrawal, transfer]
+
+    TransactionStatus:
+      type: string
+      enum: [PENDING, COMPLETED, FAILED]
+
+    WalletStatus:
+      type: string
+      enum: [ACTIVE, BLOCKED, ARCHIVED]
+
+    CreateWalletRequest:
+      type: object
+      required: [userUid, walletTypeUid, name]
+      properties:
+        userUid:
+          type: string
+          format: uuid
+        walletTypeUid:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 32
+
+    WalletResponse:
+      type: object
+      required: [uid, userUid, walletTypeUid, name, status, balance, createdAt]
+      properties:
+        uid:
+          type: string
+          format: uuid
+        userUid:
+          type: string
+          format: uuid
+        walletTypeUid:
+          type: string
+          format: uuid
+        name:
+          type: string
+        currencyCode:
+          type: string
+          minLength: 3
+          maxLength: 3
+        status:
+          $ref: '#/components/schemas/WalletStatus'
+        balance:
+          type: number
+          format: decimal
+        createdAt:
+          type: string
+          format: date-time
+        modifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    # Единая модель запроса для всех типов операций (тип задаётся параметром пути).
+    # Обязательность полей зависит от типа и проверяется сервисом:
+    #   deposit    — currency, paymentMethodId;
+    #   withdrawal — currency, paymentMethodId, destination (опционально);
+    #   transfer   — targetWalletUid.
+    TransactionRequest:
+      type: object
+      required: [ userUid, walletUid, amount ]
+      properties:
+        userUid:
+          type: string
+          format: uuid
+        walletUid:
+          type: string
+          format: uuid
+          description: Кошелёк, с которым выполняется операция (для transfer — кошелёк-источник).
+        targetWalletUid:
+          type: string
+          format: uuid
+          description: Кошелёк-получатель (только transfer).
+        amount:
+          type: number
+          description: Сумма операции, не более двух знаков после запятой.
+          minimum: 0
+          exclusiveMinimum: true
+          example: 100.00
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        paymentMethodId:
+          type: integer
+          format: int64
+        destination:
+          type: string
+          maxLength: 255
+          description: Реквизиты получателя при выводе, например "Visa **** 1234".
+        comment:
+          type: string
+          maxLength: 256
+
+    TransactionInitResponse:
+      type: object
+      required: [type, amount, fee, totalAmount, available]
+      properties:
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        amount:
+          type: number
+        fee:
+          type: number
+        totalAmount:
+          description: >
+            Итоговая сумма к списанию с источника средств (amount + fee). Для deposit это сумма,
+            которую спишет платёжный провайдер; на кошелёк зачисляется amount.
+          type: number
+        available:
+          type: boolean
+        failureReason:
+          type: string
+          nullable: true
+
+    TransactionConfirmResponse:
+      type: object
+      required: [transactionId, type, status, amount, createdAt]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        amount:
+          type: number
+        createdAt:
+          type: string
+          format: date-time
+
+    TransactionStatusResponse:
+      type: object
+      required: [transactionId, userUid, walletUid, type, amount, status, createdAt]
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+        userUid:
+          type: string
+          format: uuid
+        walletUid:
+          type: string
+          format: uuid
+        targetWalletUid:
+          type: string
+          format: uuid
+          nullable: true
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        amount:
+          type: number
+        fee:
+          type: number
+          nullable: true
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        comment:
+          type: string
+          nullable: true
+        failureReason:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        modifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    TransactionPageResponse:
+      type: object
+      required: [content, page, size, totalElements, totalPages]
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionStatusResponse'
+        page:
+          type: integer
+          format: int32
+        size:
+          type: integer
+          format: int32
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+          format: int32
+
+    ErrorResponse:
+      type: object
+      required: [title, status, detail]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri

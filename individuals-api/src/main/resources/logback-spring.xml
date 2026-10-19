@@ -24,22 +24,13 @@
             <http>
                 <url>${LOKI_URL}</url>
             </http>
-            <format>
-                <label>
-                    <pattern>app=individuals-api, environment=production, region=eu-west-1, level=%level</pattern>
-                    <readMarkers>true</readMarkers>
-                </label>
-                <json>
-                    <cloudEvents>false</cloudEvents>
-                    <label>
-                        <pattern>level=%level,logger=%logger{36}</pattern>
-                    </label>
-                    <message>
-                        <pattern>{"message": "%msg", "thread": "%thread", "exception": "%ex"}</pattern>
-                    </message>
-                </json>
-                <sortByTime>true</sortByTime>
-            </format>
+            <labels>
+                app = individuals-api
+                environment = production
+                region = eu-west-1
+                level = %level
+            </labels>
+            <message class="com.github.loki4j.logback.JsonLayout"/>
         </appender>
 
         <root level="INFO">

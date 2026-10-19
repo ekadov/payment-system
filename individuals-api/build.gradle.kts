@@ -48,6 +48,14 @@ dependencies {
     implementation("org.springframework.security:spring-security-oauth2-resource-server")
     implementation("org.springframework.security:spring-security-oauth2-jose")
     implementation("org.yaml:snakeyaml:$snakeyamlVersion")
+    implementation("io.github.openfeign:feign-core:13.6")
+    implementation("io.github.openfeign:feign-jackson:13.6")
+    implementation("io.github.openfeign:feign-okhttp:13.6")
+    implementation("io.github.openfeign:feign-slf4j:13.6")
+    implementation("io.github.openfeign.form:feign-form:3.8.0")
+    implementation("io.github.openfeign:feign-micrometer:13.6")
+    implementation("io.micrometer:micrometer-tracing-bridge-otel")
+    implementation("io.opentelemetry:opentelemetry-exporter-otlp")
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
@@ -68,6 +76,7 @@ dependencies {
 
 val openApiOutputDir = layout.buildDirectory.dir("generated-sources/openapi")
 val keycloakOpenApiOutputDir = layout.buildDirectory.dir("generated-sources/keycloak-openapi")
+val transactionOpenApiOutputDir = layout.buildDirectory.dir("generated-sources/transaction-openapi")
 
 openApiGenerate {
     generatorName.set("java")
@@ -80,6 +89,14 @@ openApiGenerate {
     generateModelDocumentation.set(false)
     generateApiTests.set(false)
     generateModelTests.set(false)
+    cleanupOutput.set(true)
+    schemaMappings.set(
+        listOf(
+            "CreateWalletRequest", "WalletResponse", "WalletStatus", "TransactionType", "TransactionStatus",
+            "TransactionRequest", "TransactionInitResponse", "TransactionConfirmResponse",
+            "TransactionStatusResponse", "TransactionPageResponse"
+        ).associateWith { "ru.individuals.api.client.transaction.generated.model.$it" }
+    )
     configOptions.set(
         mapOf(
             "dateLibrary" to "java8",
@@ -103,12 +120,37 @@ sourceSets {
     named("main") {
         java.srcDir(openApiOutputDir.map { it.dir("src/main/java") })
         java.srcDir(keycloakOpenApiOutputDir.map { it.dir("src/main/java") })
+        java.srcDir(transactionOpenApiOutputDir.map { it.dir("src/main/java") })
     }
 }
 
 tasks.named("compileJava") {
     dependsOn(tasks.named("openApiGenerate"))
     dependsOn(tasks.named("generateKeycloakClient"))
+    dependsOn(tasks.named("generateTransactionClient"))
+}
+
+tasks.register<org.openapitools.generator.gradle.plugin.tasks.GenerateTask>("generateTransactionClient") {
+    description = "Transaction Service Feign client generation"
+    generatorName.set("java")
+    library.set("feign")
+    inputSpec.set("$rootDir/../transaction-service/openapi/transaction-service.yaml")
+    outputDir.set(transactionOpenApiOutputDir.get().asFile.absolutePath)
+    apiPackage.set("ru.individuals.api.client.transaction.generated.api")
+    modelPackage.set("ru.individuals.api.client.transaction.generated.model")
+    invokerPackage.set("ru.individuals.api.client.transaction.generated.invoker")
+    generateApiDocumentation.set(false)
+    generateModelDocumentation.set(false)
+    generateApiTests.set(false)
+    generateModelTests.set(false)
+    configOptions.set(mapOf(
+        "library" to "feign",
+        "serializationLibrary" to "jackson",
+        "useJakartaEe" to "true",
+        "dateLibrary" to "java8",
+        "openApiNullable" to "false",
+        "hideGenerationTimestamp" to "true"
+    ))
 }
 
 tasks.withType<Test> {

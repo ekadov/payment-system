@@ -107,6 +107,224 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  # Кошельки и транзакции: Individuals API проверяет, что userUid совпадает с sub токена,
+  # и пересылает запрос в Transaction Service. Модели — из контракта Transaction Service.
+  # Ошибки Transaction Service (400, 404, 409) возвращаются с тем же кодом и телом.
+  /wallets:
+    post:
+      summary: Создание кошелька текущего пользователя
+      security:
+        - bearerAuth: [ ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/CreateWalletRequest'
+      responses:
+        '201':
+          description: Кошелёк создан
+          content:
+            application/json:
+              schema:
+                $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/WalletResponse'
+        '401': &unauthorized
+          description: Нет или недействителен Bearer-токен
+        '403': &forbidden
+          description: userUid не совпадает с sub токена
+        '409':
+          description: Кошелёк с таким именем уже существует
+
+  /wallets/{walletUid}:
+    get:
+      summary: Кошелёк текущего пользователя
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - name: walletUid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Кошелёк
+          content:
+            application/json:
+              schema:
+                $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/WalletResponse'
+        '401': *unauthorized
+        '403':
+          description: Кошелёк принадлежит другому пользователю
+        '404':
+          description: Кошелёк не найден
+
+  /wallets/user/{userUid}:
+    get:
+      summary: Кошельки текущего пользователя
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - name: userUid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Кошельки пользователя
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/WalletResponse'
+        '401': *unauthorized
+        '403': *forbidden
+
+  /transactions/{type}/init:
+    post:
+      summary: Расчёт условий операции без записи в БД
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - &transactionTypeParam
+          name: type
+          in: path
+          required: true
+          schema:
+            $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/TransactionType'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/TransactionRequest'
+      responses:
+        '200':
+          description: Комиссия, итоговая сумма и доступность операции
+          content:
+            application/json:
+              schema:
+                $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/TransactionInitResponse'
+        '400':
+          description: Ошибка валидации
+        '401': *unauthorized
+        '403': *forbidden
+
+  /transactions/{type}/confirm:
+    post:
+      summary: Подтверждение операции
+      description: >
+        Клиент генерирует ключ идемпотентности один раз на операцию и повторяет его при ретраях:
+        повтор возвращает уже созданную транзакцию без повторного списания.
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - *transactionTypeParam
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/TransactionRequest'
+      responses:
+        '200':
+          description: Транзакция создана (deposit/withdrawal — PENDING, transfer — COMPLETED)
+          content:
+            application/json:
+              schema:
+                $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/TransactionConfirmResponse'
+        '400':
+          description: Ошибка валидации
+        '401': *unauthorized
+        '403': *forbidden
+        '409':
+          description: Недостаточно средств или кошелёк неактивен
+        '422':
+          description: Ключ идемпотентности уже использован для другого запроса
+
+  /transactions/{transactionId}/status:
+    get:
+      summary: Статус транзакции текущего пользователя
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Транзакция
+          content:
+            application/json:
+              schema:
+                $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/TransactionStatusResponse'
+        '401': *unauthorized
+        '403':
+          description: Транзакция принадлежит другому пользователю
+        '404':
+          description: Транзакция не найдена
+
+  /transactions:
+    get:
+      summary: Поиск транзакций текущего пользователя (userUid берётся из токена)
+      security:
+        - bearerAuth: [ ]
+      parameters:
+        - name: walletUid
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: type
+          in: query
+          schema:
+            $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/TransactionType'
+        - name: status
+          in: query
+          schema:
+            $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/TransactionStatus'
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Страница транзакций
+          content:
+            application/json:
+              schema:
+                $ref: '../../transaction-service/openapi/transaction-service.yaml#/components/schemas/TransactionPageResponse'
+        '401': *unauthorized
+
 components:
   securitySchemes:
     bearerAuth:

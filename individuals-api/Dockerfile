@@ -6,6 +6,7 @@ COPY individuals-api/gradle gradle
 COPY individuals-api/build.gradle.kts individuals-api/settings.gradle.kts individuals-api/gradle.properties ./
 COPY individuals-api/openapi openapi
 COPY individuals-api/src src
+COPY transaction-service/openapi /transaction-service/openapi
 COPY infrastructure/local-repo /infrastructure/local-repo
 
 RUN chmod +x gradlew && ./gradlew clean bootJar -x test --no-daemon

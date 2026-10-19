@@ -1,0 +1,118 @@
+server:
+  port: 8084
+  servlet:
+    context-path: /api/v1
+
+spring:
+  application:
+    name: transaction-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/transaction_service?currentSchema=transaction}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+      org.hibernate.envers.default_schema: transaction
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/my-realm}
+  flyway:
+    enabled: true
+    schemas: transaction
+    locations: classpath:migration
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+        max.block.ms: 5000
+        request.timeout.ms: 5000
+        delivery.timeout.ms: 10000
+    consumer:
+      group-id: transaction-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: manual_immediate
+      observation-enabled: true
+    template:
+      observation-enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,dltreplay
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        transactions.operation.duration: true
+        transactions.finalize.latency: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+openapi:
+  transactionService:
+    base-path: ""
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  loki:
+    url: ${LOKI_URL:http://localhost:3100/loki/api/v1/push}
+
+transaction:
+  security:
+    # Принимаются только токены, выпущенные Keycloak для клиента шлюза (claim azp).
+    authorized-party: ${KEYCLOAK_CLIENT_ID:my-client-id}
+  kafka:
+    topics:
+      deposit-requested: deposit-requested
+      deposit-completed: deposit-completed
+      withdrawal-requested: withdrawal-requested
+      withdrawal-completed: withdrawal-completed
+      withdrawal-failed: withdrawal-failed
+    partitions: 3
+    retry:
+      attempts: 3
+      interval: 1s
+      max-interval: 30s
+  outbox:
+    relay-enabled: true
+    poll-interval: PT0.5S
+    batch-size: 100
+    send-timeout: 15s
+    retry-interval: 1s
+    max-retry-interval: 1m

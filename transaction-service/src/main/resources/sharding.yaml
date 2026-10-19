@@ -1,0 +1,54 @@
+dataSources:
+  shard0:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: org.postgresql.Driver
+    jdbcUrl: $${transaction.shard0.url::jdbc:postgresql://transaction-postgres-0:5432/transaction_service?currentSchema=transaction&stringtype=unspecified}
+    username: postgres
+    password: postgres
+    maximumPoolSize: 10
+  shard1:
+    dataSourceClassName: com.zaxxer.hikari.HikariDataSource
+    driverClassName: org.postgresql.Driver
+    jdbcUrl: $${transaction.shard1.url::jdbc:postgresql://transaction-postgres-1:5432/transaction_service?currentSchema=transaction&stringtype=unspecified}
+    username: postgres
+    password: postgres
+    maximumPoolSize: 10
+
+rules:
+  - !SHARDING
+    tables:
+      wallets:
+        actualDataNodes: shard$->{0..1}.wallets
+        databaseStrategy:
+          standard:
+            shardingColumn: user_uid
+            shardingAlgorithmName: user-hash
+      transactions:
+        actualDataNodes: shard$->{0..1}.transactions
+        databaseStrategy:
+          standard:
+            shardingColumn: user_uid
+            shardingAlgorithmName: user-hash
+      outbox_events:
+        actualDataNodes: shard$->{0..1}.outbox_events
+        databaseStrategy:
+          standard:
+            shardingColumn: user_uid
+            shardingAlgorithmName: user-hash
+    bindingTables:
+      - wallets,transactions,outbox_events
+    shardingAlgorithms:
+      user-hash:
+        type: INLINE
+        props:
+          algorithm-expression: shard$->{Math.abs(user_uid.toString().hashCode() % 2)}
+  - !BROADCAST
+    tables:
+      - wallet_types
+
+transaction:
+  defaultType: XA
+  providerType: Atomikos
+
+props:
+  sql-show: false

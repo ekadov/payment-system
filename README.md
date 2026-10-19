@@ -195,6 +195,122 @@ docker compose restart grafana
 docker compose down
 ```
 
+## Transaction Service
+
+Порт Transaction Service (`8084`) не публикуется наружу: сервис доступен только внутри сети
+compose - шлюзу Individuals API и Prometheus. Клиенты работают через Individuals API
+(`http://localhost:8081/v1/...`), который пересылает JWT пользователя. Transaction Service сам
+проверяет токен (подпись, issuer Keycloak, `azp` клиента шлюза) и берёт личность только из `sub`:
+`userUid` в запросе должен совпадать с ним, чужие кошельки и транзакции возвращают `403`.
+Без токена доступны только `actuator/health`, `actuator/info`, `actuator/prometheus` и Swagger UI;
+остальные эндпоинты actuator требуют роль `admin`.
+
+Сервис поддерживает создание и чтение кошельков, а также `init`, `confirm`,
+получение статуса и поиск транзакций. `init` выполняет только расчёт условий.
+Запись транзакции и изменение баланса начинаются исключительно на `confirm`.
+Deposit и withdrawal финализируются сообщениями Kafka; transfer завершается
+синхронно в одной транзакции с пессимистической блокировкой кошельков.
+
+Docker Compose запускает два PostgreSQL-шарда (`5435`, `5436`), Kafka
+(`29092`) и Transaction Service. Профиль `sharding` использует конфигурацию
+Apache ShardingSphere JDBC из `transaction-service/src/main/resources/sharding.yaml`.
+
+Ключевые решения:
+
+- `wallets`, `transactions` и `outbox_events` шардируются по `user_uid` (INLINE-алгоритм в `sharding.yaml`),
+  `wallet_types` - broadcast-таблица. Миграции из `migration/` применяются Flyway к каждому
+  физическому шарду при старте приложения, до создания DataSource ShardingSphere (`ShardMigrator`).
+  Шарды, созданные раньше init-скриптами PostgreSQL, получают baseline по существующим таблицам
+  и обновляются без потери данных.
+- Перевод между пользователями может затрагивать два шарда, поэтому включены XA-транзакции
+  ShardingSphere (Atomikos); на PostgreSQL для этого задан `max_prepared_transactions`.
+- События `DepositRequested`/`WithdrawalRequested` сохраняются в таблицу `outbox_events` в той же
+  транзакции, что и операция (transactional outbox). `OutboxRelay` отправляет их в Kafka и помечает
+  `SENT` только после подтверждения брокера; при ошибке событие отправляется повторно с нарастающей
+  паузой, в том числе после перезапуска сервиса. Доставка at-least-once: получатель отсекает дубли
+  по ключу сообщения (`transactionId`).
+- `confirm` идемпотентен по обязательному заголовку `Idempotency-Key`: шлюз не повторяет запрос сам,
+  а повтор клиента с тем же ключом возвращает уже созданную транзакцию без второго списания. Ключ и
+  hash запроса хранятся в `transactions` под уникальным индексом `(user_uid, idempotency_key)`;
+  тот же ключ с другими параметрами отклоняется с `422`.
+- Повторная доставка `DepositCompleted`/`Withdrawal*` не меняет уже финализированную транзакцию.
+- Ответ провайдера не теряется: временные ошибки БД повторяются до успеха, невалидные сообщения
+  и сообщения, для которых исчерпаны попытки, попадают в `<topic>.DLT`. Переотправить их в исходные
+  топики может администратор (роль `admin`).
+- Платёжный провайдер - внешняя система: сервис публикует `deposit-requested`/`withdrawal-requested`
+  и ждёт ответ в `deposit-completed`, `withdrawal-completed` или `withdrawal-failed`.
+
+### Пример (через Individuals API)
+
+Ответ провайдера отправляется вручную.
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8081/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"user11@example.com","password":"password"}' | jq -r .access_token)
+USER=$(curl -s localhost:8081/v1/auth/me -H "Authorization: Bearer $TOKEN" | jq -r .id)
+AUTH="Authorization: Bearer $TOKEN"
+# 1. Кошелёк
+curl -s -X POST localhost:8081/v1/wallets -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"userUid":"'$USER'","walletTypeUid":"00000000-0000-0000-0000-000000000001","name":"main"}'
+WALLET=<uid из ответа>
+# 2. Расчёт условий пополнения (без записи в БД)
+curl -s -X POST localhost:8081/v1/transactions/deposit/init -H "$AUTH" -H 'Content-Type: application/json' \
+  -d '{"userUid":"'$USER'","walletUid":"'$WALLET'","amount":100,"currency":"USD","paymentMethodId":1}'
+# 3. Подтверждение: транзакция создаётся в статусе PENDING, в Kafka уходит DepositRequested.
+#    Ключ генерируется один раз на операцию; повтор с тем же ключом вернёт ту же транзакцию.
+KEY=$(uuidgen)
+curl -s -X POST localhost:8081/v1/transactions/deposit/confirm -H "$AUTH" -H "Idempotency-Key: $KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"userUid":"'$USER'","walletUid":"'$WALLET'","amount":100,"currency":"USD","paymentMethodId":1}'
+TX=<transactionId из ответа>
+docker exec payment-kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic deposit-requested --from-beginning --timeout-ms 5000
+# 4. Ответ провайдера (вручную)
+echo '{"transactionId":"'$TX'","status":"COMPLETED","amount":100}' | docker exec -i payment-kafka \
+  /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic deposit-completed
+# 5. Статус COMPLETED, баланс 100.00
+curl -s localhost:8081/v1/transactions/$TX/status -H "$AUTH"
+curl -s localhost:8081/v1/wallets/$WALLET -H "$AUTH"
+```
+
+Переотправка сообщений из DLT (токен пользователя `admin@example.com` с ролью `admin`,
+вызов внутри сети compose):
+
+```bash
+ADMIN_TOKEN=$(curl -s -X POST localhost:8081/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"password"}' | jq -r .access_token)
+docker exec transaction-service wget -qO- --post-data='' \
+  --header "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8084/api/v1/actuator/dltreplay
+```
+
+Для вывода ответ провайдера отправляется в `withdrawal-completed` или в `withdrawal-failed`
+(`{"transactionId":"...","failureReason":"INSUFFICIENT_FUNDS_EXTERNAL"}`); при `withdrawal-failed`
+сумма и комиссия возвращаются на кошелёк.
+
+На Windows перед `docker exec` с путями внутри контейнера нужно выполнить
+`export MSYS_NO_PATHCONV=1`.
+
+Трасса `individuals-api -> transaction-service -> Kafka` видна в Grafana (Explore -> Tempo),
+логи - в Loki (`{app="transaction-service"}`).
+
+Предустановленные типы кошельков:
+
+- USD: `00000000-0000-0000-0000-000000000001`
+- EUR: `00000000-0000-0000-0000-000000000002`
+
+Архитектурные и sequence-диаграммы находятся в
+`docs/transaction-architecture.md`.
+
+Тесты Transaction Service:
+
+```bash
+cd transaction-service
+./gradlew test
+```
+
+Feign-клиент для оркестратора генерируется из того же контракта при сборке individuals-api
+(задача `generateTransactionClient`).
+
 ## Запуск тестов
 
 Из individuals-api запустить:
