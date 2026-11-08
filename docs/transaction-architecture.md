@@ -2,21 +2,8 @@
 
 ## Container diagram
 
-```mermaid
-flowchart LR
-    Client --> Individuals[Individuals API]
-    Individuals --> Transaction[Transaction Service]
-    Transaction --> Sharding[ShardingSphere JDBC]
-    Sharding --> Shard0[(PostgreSQL shard 0)]
-    Sharding --> Shard1[(PostgreSQL shard 1)]
-    Transaction --> Kafka[(Kafka)]
-    Kafka --> Provider[Payment provider]
-    Provider --> Kafka
-    Transaction --> Prometheus
-    Transaction --> Tempo
-    Prometheus --> Grafana
-    Tempo --> Grafana
-```
+Общая контейнерная схема вынесена в отдельный документ:
+[Payment System - container diagram](system-container-diagram.md).
 
 ## Component diagram
 
@@ -81,7 +68,7 @@ sequenceDiagram
     C->>I: POST /transactions/transfer/confirm
     I->>T: confirm
     T->>DB: lock wallets in UUID order
-    Note over T,DB: кошельки могут быть на разных шардах — XA-транзакция (2PC)
+    Note over T,DB: кошельки могут быть на разных шардах - XA-транзакция (2PC)
     T->>DB: debit + credit + transaction COMPLETED
     T-->>I: COMPLETED + transactionId
 ```
@@ -115,9 +102,9 @@ sequenceDiagram
 
 ## Обработка ответов провайдера
 
-- Временная ошибка БД — повторы без ограничения числа попыток с паузой до `transaction.kafka.retry.max-interval`;
+- Временная ошибка БД - повторы без ограничения числа попыток с паузой до `transaction.kafka.retry.max-interval`;
   следующие сообщения партиции ждут, offset не сдвигается.
-- Невалидное сообщение — сразу в `<topic>.DLT`.
-- Прочие ошибки — `transaction.kafka.retry.attempts` повторов, затем в `<topic>.DLT`.
+- Невалидное сообщение - сразу в `<topic>.DLT`.
+- Прочие ошибки - `transaction.kafka.retry.attempts` повторов, затем в `<topic>.DLT`.
 - `POST /api/v1/actuator/dltreplay` переотправляет накопившиеся в DLT сообщения в исходные топики;
   финализация идемпотентна, поэтому повторная доставка безопасна.
