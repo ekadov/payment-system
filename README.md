@@ -40,13 +40,24 @@ payment-system/
 ```
 
 ## Архитектура
-### API диаграмма
+
+### Актуальная документация
+
+- [Общая контейнерная диаграмма](docs/system-container-diagram.md)
+- [Компоненты Currency Rate Service](docs/currency-rate-component-diagram.md)
+- [Модель данных Currency Rate Service](docs/currency-rate-data-model.md)
+- [Sequence-диаграммы Currency Rate Service](docs/currency-rate-sequence-diagrams.md)
+- [Архитектура Transaction Service](docs/transaction-architecture.md)
+
+### Диаграммы Individuals API
+
+#### API диаграмма
 ![API диаграмма](./docs/images/img.png)
 
-### Container
+#### Container
 ![Container](./docs/images/img_1.png)
 
-### Component
+#### Component
 ![Component](./docs/images/img_2.png)
 
 ## API
